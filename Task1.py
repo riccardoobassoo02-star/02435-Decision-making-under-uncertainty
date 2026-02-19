@@ -194,3 +194,4 @@ for day in range(100):
 average_cost = np.mean(daily_costs) 
 print(f"Average daily electricity cost: {average_cost:.2f}")
 
+
