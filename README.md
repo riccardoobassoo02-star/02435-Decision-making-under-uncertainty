@@ -5,4 +5,8 @@ Division of work:
 -Gerard: overleaf + have a look at the constraints
 -Kris: overleaf + have a look at the constraints
 -Esteban: Python code
--Riccardo: Python code
+-Riccardo: Python code 
+
+STATUS OF WORK 
+- python code results to be checked 
+- plots missing
