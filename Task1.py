@@ -62,8 +62,8 @@ def solve_milp(price,occ_r1,occ_r2):
     for r in model.R: 
         model.temp_init.add(model.temp[r,0] == T0_prev) # initial temperature at time 0 is T0_prev, for every room 
     # 2. Initial conditions for humidity
-    model.hum_init = ConstraintList() # initial humidity at time 0 is H0  
-    model.hum_init.add(model.hum[0] == H0)
+    model.hum_init = ConstraintList() 
+    model.hum_init.add(model.hum[0] == H0) # initial humidity at time 0 is H0  
     # 3. Temperature dynamics for each room and time period
     model.temp_dyn = ConstraintList() 
     for t in model.T: 
@@ -83,8 +83,9 @@ def solve_milp(price,occ_r1,occ_r2):
     for t in model.T: 
         if t > 0: 
             model.hum_dyn.add(model.hum[t] == model.hum[t-1] + eta_occ * (occ_r1[t-1] + occ_r2[t-1]) - eta_vent * model.v[t-1]) 
-    # 5. Low Temperature Overrule Controller  
-    # 5.1 activation of the overrule controller: if temp < T_low, heater must be ON
+    
+    # 5. TEMPERATURE OVERRULE CONTROLLER  
+    # 5.1 Low Temperature Overrule Controller: activation (if temp < T_low, heater must be ON)
     model.low_act = ConstraintList()
     M = 100
     for r in model.R:
@@ -118,17 +119,19 @@ def solve_milp(price,occ_r1,occ_r2):
     for r in model.R:
         for t in model.T:
             model.power_off.add(model.p[r,t] <= P_max * (1 - model.delta_high[r,t])) 
-    # 5.7 Conflict resolution between Low and High Temperature Overrule Controllers: both cannot be activated at the same time 
+
+    #  TO BE CHECKED 5.7 Conflict resolution between Low and High Temperature Overrule Controllers: both cannot be activated at the same time 
     model.conflict_res = ConstraintList()
     for r in model.R:
         for t in model.T:
-            model.conflict_res.add(model.delta_low[r,t] + model.delta_high[r,t] <= 1)          
+            model.conflict_res.add(model.delta_low[r,t] + model.delta_high[r,t] <= 1)   
+
     # 6. Humidity Overrulle Controller 
     # 6.1 Activation
     model.hum_act = ConstraintList()
     M = 100
     for t in model.T: 
-        model.hum_act.add(M * model.delta_hum[t] >= model.hum[t] - H_high) 
+        model.hum_act.add(M * model.delta_hum[t] >= model.hum[t] - H_high)  
     # 6.2 Ventilation On when Humidity Overrule Controller is activated
     model.hum_force = ConstraintList()
     for t in model.T:
@@ -161,10 +164,10 @@ def solve_milp(price,occ_r1,occ_r2):
         for t in model.T:
             model.high_deact.add(M * (1 - model.delta_high[r,t]) >= T_ok - model.temp[r,t]) 
     # 11.3  High Temperature Overrule Controller: if T ok <= temp <= T_high, and the controller wasn't previously activated, deactivate it 
-    for r in model.R:
-        for t in model.T: 
-           if t > 0:
-                model.high_deact.add(M * (1 - model.delta_high[r,t]) >= T_high - model.temp[r,t] - M * model.delta_high[r,t-1])
+    #for r in model.R:
+        #for t in model.T: 
+           #if t > 0:
+                #model.high_deact.add(M * (1 - model.delta_high[r,t]) >= T_high - model.temp[r,t] - M * model.delta_high[r,t-1])
     
 # solver call
     solver = SolverFactory('gurobi')
@@ -220,5 +223,5 @@ for t in range(T):
     for day in range(100):
         print(f"Day {day+1}: {daily_costs[day]:.2f}")
         average_cost = np.mean(daily_costs)
-        print(f"Average daily electricity cost: {average_cost:.2f}")
+    print(f"Average daily electricity cost: {average_cost:.2f}")
 
