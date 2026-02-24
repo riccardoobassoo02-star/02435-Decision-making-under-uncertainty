@@ -6,7 +6,8 @@ Created on Sun Nov 16 13:14:45 2025
 """
 import pandas as pd
 import matplotlib.pyplot as plt
-
+import os
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 def plot_HVAC_results_by_day(data_frame, day_to_plot):
     # 1. Filter the data for the specific day requested
