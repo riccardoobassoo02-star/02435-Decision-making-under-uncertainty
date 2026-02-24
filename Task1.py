@@ -3,8 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt 
 import pandas as pd
 from pyomo.environ import * 
-from SystemCharacteristics import get_fixed_data 
-from PlotsRestaurant import plot_HVAC_results 
+from SystemCharacteristics import get_fixed_data
 import os
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
