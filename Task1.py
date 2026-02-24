@@ -187,11 +187,37 @@ for day in range(100):
     occ_r2  = occupancy_r2.iloc[day].values
 
     p_opt, v_opt, temp_opt, hum_opt, cost = solve_milp(price, occ_r1, occ_r2)
-    daily_costs.append(cost) 
+    daily_costs.append(cost)
+
+all_rows = []
+    # Collect hourly data
+    for t in range(T):
+        row = {
+            'Day': day + 1,
+            'Hour': t,
+            'Price': price_val[t],
+            'Occupancy_R1': occ_r1[t],
+            'Occupancy_R2': occ_r2[t],
+            'Temp_Room1': temp_opt[1, t],
+            'Temp_Room2': temp_opt[2, t],
+            'Power_Heater1': p_opt[1, t],
+            'Power_Heater2': p_opt[2, t],
+            'Ventilation_On': v_opt[t],
+            'Humidity': hum_opt[t],
+            'Daily_Total_Cost': cost if t == 0 else None  # Optional: only log cost once per day
+        }
+        all_rows.append(row)
+
+# 2. Convert to DataFrame
+results_df = pd.DataFrame(all_rows)
+
+# 3. Export to CSV
+results_df.to_csv('HVAC_Optimization_Results.csv', index=False)
+print("Results successfully saved to HVAC_Optimization_Results.csv")
+
 
 for day in range(100):
     print(f"Day {day+1}: {daily_costs[day]:.2f}")
-average_cost = np.mean(daily_costs) 
+average_cost = np.mean(daily_costs)
 print(f"Average daily electricity cost: {average_cost:.2f}")
-
 

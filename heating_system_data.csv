@@ -1,0 +1,11 @@
+num_timeslots,initial_temperature,previous_initial_temperature,initial_humidity,heating_max_power,heat_exchange_coeff,heating_efficiency_coeff,thermal_loss_coeff,heat_vent_coeff,heat_occupancy_coeff,temp_min_comfort_threshold,temp_OK_threshold,temp_max_comfort_threshold,outdoor_temperature,vent_min_up_time,humidity_threshold,ventilation_power,humidity_occupancy_coeff,humidity_vent_coeff
+10.0,21.0,21.0,40.0,3.0,0.6,1.0,0.1,0.7,0.02,18.0,22.0,26.0,-3.0,3.0,70.0,2.0,0.18,15.0
+,,,,,,,,,,,,,-2.4270509831248424,,,,,
+,,,,,,,,,,,,,-0.9270509831248421,,,,,
+,,,,,,,,,,,,,0.9270509831248421,,,,,
+,,,,,,,,,,,,,2.4270509831248424,,,,,
+,,,,,,,,,,,,,3.0,,,,,
+,,,,,,,,,,,,,2.4270509831248424,,,,,
+,,,,,,,,,,,,,0.9270509831248426,,,,,
+,,,,,,,,,,,,,-0.9270509831248419,,,,,
+,,,,,,,,,,,,,-2.427050983124842,,,,,

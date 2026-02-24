@@ -5,9 +5,26 @@ Created on Sun Nov 16 13:14:45 2025
 @author: geots
 """
 
-def plot_HVAC_results(HVAC_results):
+import pandas as pd
+
+data_for_plot = pd.read_csv('HVAC_Optimization_Results.csv')
+
+def plot_HVAC_results():
     import matplotlib.pyplot as plt
-    T = 18
+    #T = 18
+    T = 2
+
+    # Mapping the columns from the input DataFrame to the variables in your function
+    T = data_for_plot['Hour']
+    Temp_r1 = data_for_plot['Temp_Room1']
+    Temp_r2 = data_for_plot['Temp_Room2']
+    h_r1 = data_for_plot['Power_Heater1']
+    h_r2 = data_for_plot['Power_Heater2']
+    v = data_for_plot['Ventilation_On']
+    Hum = data_for_plot['Humidity']
+    price = data_for_plot['Price']
+    Occ_r1 = data_for_plot['Occupancy_R1']
+    Occ_r2 = data_for_plot['Occupancy_R2']
     
     
     fig, axes = plt.subplots(4, 1, figsize=(12, 14), sharex=True)
@@ -54,3 +71,5 @@ def plot_HVAC_results(HVAC_results):
     
     plt.tight_layout()
     plt.show()
+
+plot_HVAC_results()
