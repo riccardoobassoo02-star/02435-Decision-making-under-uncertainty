@@ -95,9 +95,9 @@ def solve_milp(price,occ_r1,occ_r2):
     # LOW TEMPERATURE OVERRULE CONTROLLER
     # 5.1 initial condition — low temperature overrule controller is deactivated at the beginning of the day
     # Note: at the beginning of the day, the temperature is T0_prev = 21°, which is above T_low. Therefore, the constraint should be useless, but we include it for completeness and to ensure the model is well-defined.
-    model.low_init = ConstraintList()
-    for r in model.R:
-        model.low_init.add(model.delta_low[r, 0] == 0)   
+    # model.low_init = ConstraintList()
+    # for r in model.R:
+    #     model.low_init.add(model.delta_low[r, 0] == 0)   
 
     # 5.2 low temperature overrule controller: activation (if temp < T_low, controller must be ON)
     model.low_act = ConstraintList()
@@ -127,9 +127,9 @@ def solve_milp(price,occ_r1,occ_r2):
     # HIGH TEMPERATURE OVERRULE CONTROLLER
     # 5.6 initial condition — high temperature overrule controller is deactivated at the beginning of the day
     # Note: at the beginning of the day, the temperature is T0_prev = 21°, which is below T_high. Therefore, the constraint should be useless, but we include it for completeness and to ensure the model is well-defined.
-    model.high_init = ConstraintList()
-    for r in model.R:
-        model.high_init.add(model.delta_high[r, 0] == 0) 
+    # model.high_init = ConstraintList()
+    # for r in model.R:
+    #     model.high_init.add(model.delta_high[r, 0] == 0) 
 
     # 5.7 high temperature overrule controller: activation 
     model.high_act = ConstraintList()
@@ -151,9 +151,9 @@ def solve_milp(price,occ_r1,occ_r2):
 
 
     # 6. HUMIDITY OVERRULE CONTROLLER
-    # 6.1. initial condition — humidity overrule controller is deactivated at the beginning of the day
-    model.hum_ctrl_init = ConstraintList() 
-    model.hum_ctrl_init.add(model.delta_hum[0] == 0)  
+    # # 6.1. initial condition — humidity overrule controller is deactivated at the beginning of the day
+    # model.hum_ctrl_init = ConstraintList() 
+    # model.hum_ctrl_init.add(model.delta_hum[0] == 0)  
 
     # 6.2 activation
     model.hum_act = ConstraintList()
