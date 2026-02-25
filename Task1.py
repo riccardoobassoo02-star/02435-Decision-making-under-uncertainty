@@ -181,10 +181,6 @@ def solve_milp(price,occ_r1,occ_r2):
             model.vent_inertia.add(
                 model.v[t-1] + model.v[t-2] + model.v[t-3] >= 3 * (model.v[t-1] - model.v[t])
             ) 
-        if t >=8: 
-            model.vent_inertia.add(
-                 model.v[t] <= model.v[t-1] # can't switch on the ventilation in the last 2 hours if it was off at hour 7, because it wouldn't be able to stay on for the minimum up time of 3 hours
-            )
 
     
     # solver call
