@@ -175,7 +175,12 @@ def solve_milp(price,occ_r1,occ_r2):
     # 6.4 deactivation: if humidity <= H_high, deactivate
     model.hum_deact = ConstraintList()
     for t in model.T:
-        model.hum_deact.add(M * (1 - model.delta_hum[t]) >= H_high - model.hum[t])
+        model.hum_deact.add(M * (1 - model.delta_hum[t]) >= H_high - model.hum[t]) 
+    # 
+    model.hum_limit = ConstraintList() 
+    for t in model.T: 
+        if t>=8: 
+            model.hum_limit.add(model.hum[t] <= H_high) # humidity must be below the threshold in the last two hours of the day, to ensure comfort at the beginning of the next day
 
     # 7.ventilation system inertia 
     model.vent_inertia = ConstraintList()
@@ -190,7 +195,7 @@ def solve_milp(price,occ_r1,occ_r2):
             ) 
         if t >=8: 
             model.vent_inertia.add(
-                 model.v[t] == 0
+                 model.v[t] == 0 
             )
 
     
