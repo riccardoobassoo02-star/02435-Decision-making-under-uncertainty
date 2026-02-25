@@ -34,6 +34,7 @@ eta_occ     = data['humidity_occupancy_coeff'] # humidity increase per hour per 
 eta_vent    = data['humidity_vent_coeff'] # humidity decrease per hour when ventilation is ON (%)
 min_up_time = data['vent_min_up_time'] # minimum number of consecutive hours that ventilation must be ON once turned ON (hours)
 M = 1000 # big M constant for linearization of logical conditions in the overrule controllers (should be sufficiently large to not cut off any feasible solution, but not too large to avoid numerical issues)
+epsilon = 0.01
 # definition of the optimization model
 def solve_milp(price,occ_r1,occ_r2):  
     model = ConcreteModel() # creating an instance of the concrete model class 
@@ -104,24 +105,23 @@ def solve_milp(price,occ_r1,occ_r2):
         for t in model.T:
             model.low_act.add(M * model.delta_low[r,t] >= T_low - model.temp[r,t]) 
 
-    # 5.3 low temperature overrule controller: memory (if temp < T_ok, controller must remain ON if it was previously activated)
+    # 5.3 low temperature overrule controller: memory (if temp <= T_ok, controller must remain ON if it was previously activated)
     model.low_mem = ConstraintList()
     for r in model.R:
         for t in model.T:
             if t > 0:
-                model.low_mem.add(M * model.delta_low[r,t] >= T_ok * model.delta_low[r,t-1] - model.temp[r,t]) 
-
+                model.low_mem.add(M * model.delta_low[r,t] >= (T_ok + epsilon - model.temp[r,t]) - M * (1 - model.delta_low[r,t-1]))
     # 5.4 low temperature overrule controller: force power to max when activated
     model.power_max = ConstraintList()
     for r in model.R:
         for t in model.T:
             model.power_max.add(model.p[r,t] >= P_max * model.delta_low[r,t]) 
 
-    # 5.5 low temperature overrule controller: if temp >= T_ok, deactivate
+    # 5.5 low temperature overrule controller: if temp > T_ok, deactivate
     model.low_deact = ConstraintList()
     for r in model.R:
         for t in model.T:
-            model.low_deact.add(M * (1 - model.delta_low[r,t]) >= model.temp[r,t] - T_ok) 
+            model.low_deact.add(M * (1 - model.delta_low[r,t]) >= model.temp[r,t] - T_ok-epsilon) 
 
     # HIGH TEMPERATURE OVERRULE CONTROLLER
     # 5.6 initial condition — high temperature overrule controller is deactivated at the beginning of the day
@@ -242,5 +242,5 @@ print("Results saved to HVAC_Optimization_Results.csv")
 
 # out of the for loop, calculates and prints the average daily cost over the 100 days
 average_cost = np.mean(daily_costs)
-print(f"Average daily electricity cost: {average_cost:.2f}")
+print(f"Average daily electricity cost: {average_cost:.2f}") 
 

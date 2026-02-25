@@ -92,5 +92,5 @@ def plot_HVAC_results_by_day(data_frame, day_to_plot):
 # Load your file
 df = pd.read_csv('HVAC_Optimization_Results.csv')
 
-# Call the function for any specific day (e.g., Day 2)
-plot_HVAC_results_by_day(df, day_to_plot= 35)
+# Call the function for any specific day
+plot_HVAC_results_by_day(df, day_to_plot= 84)
