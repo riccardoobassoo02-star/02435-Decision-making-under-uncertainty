@@ -8,5 +8,7 @@ Division of work:
 -Riccardo: Python code 
 
 STATUS OF WORK 
-- python code results to be checked 
-- plots missing
+- check the constraints, especially the utility of the initial conditions 
+-write the mathematical model on overleaf 
+- write MDP model for task 2
+

@@ -33,7 +33,7 @@ H_high      = data['humidity_threshold'] # maximum comfortable humidity threshol
 eta_occ     = data['humidity_occupancy_coeff'] # humidity increase per hour per person in the room (%)
 eta_vent    = data['humidity_vent_coeff'] # humidity decrease per hour when ventilation is ON (%)
 min_up_time = data['vent_min_up_time'] # minimum number of consecutive hours that ventilation must be ON once turned ON (hours)
-
+M = 1000 # big M constant for linearization of logical conditions in the overrule controllers (should be sufficiently large to not cut off any feasible solution, but not too large to avoid numerical issues)
 # definition of the optimization model
 def solve_milp(price,occ_r1,occ_r2):  
     model = ConcreteModel() # creating an instance of the concrete model class 
@@ -99,7 +99,7 @@ def solve_milp(price,occ_r1,occ_r2):
 
     # 5.2 low temperature overrule controller: activation (if temp < T_low, controller must be ON)
     model.low_act = ConstraintList()
-    M = 1000
+   
     for r in model.R:
         for t in model.T:
             model.low_act.add(M * model.delta_low[r,t] >= T_low - model.temp[r,t]) 
@@ -132,7 +132,6 @@ def solve_milp(price,occ_r1,occ_r2):
 
     # 5.7 high temperature overrule controller: activation 
     model.high_act = ConstraintList()
-    M = 100
     for r in model.R:
         for t in model.T:
             model.high_act.add(M * model.delta_high[r,t] >= model.temp[r,t] - T_high) 
@@ -168,18 +167,17 @@ def solve_milp(price,occ_r1,occ_r2):
     model.hum_ctrl_init = ConstraintList() 
     model.hum_ctrl_init.add(model.delta_hum[0] == 0)  
 
-    # 6.1 activation
+    # 6.2 activation
     model.hum_act = ConstraintList()
-    M = 100
     for t in model.T: 
         model.hum_act.add(M * model.delta_hum[t] >= model.hum[t] - H_high)  
 
-    # 6.2 ventilation on when humidity overrule controller is activated
+    # 6.3 ventilation on when humidity overrule controller is activated
     model.hum_force = ConstraintList()
     for t in model.T:
         model.hum_force.add(model.v[t] >= model.delta_hum[t]) 
 
-    # 6.3 deactivation: if humidity <= H_high, deactivate
+    # 6.4 deactivation: if humidity <= H_high, deactivate
     model.hum_deact = ConstraintList()
     for t in model.T:
         model.hum_deact.add(M * (1 - model.delta_hum[t]) >= H_high - model.hum[t])
@@ -197,9 +195,11 @@ def solve_milp(price,occ_r1,occ_r2):
             )
 
     
-# solver call
+    # solver call
     solver = SolverFactory('gurobi')
     result = solver.solve(model)
+    if result.solver.termination_condition != TerminationCondition.optimal:
+        print(f"Warning: Day {day} did not solve to optimality")
 
     # extract results
     p_opt  = {(r,t): value(model.p[r,t])    for r in model.R for t in model.T}
