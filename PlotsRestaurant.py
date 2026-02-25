@@ -63,9 +63,9 @@ def plot_HVAC_results_by_day(data_frame, day_to_plot):
     # Right Axis: Ventilation
     ax2_vent = ax2_hum.twinx()
     ax2_vent.step(T, v, where='mid', label='Ventilation ON', color='tab:blue', linewidth=2)
-    ax2_vent.set_ylabel("Ventilation (0=OFF, 1=ON)", color='tab:blue')
+    ax2_vent.set_ylabel("Ventilation (0=OFF, 1=ON)", color='tab:blue', fontsize=8)
     ax2_vent.tick_params(axis='y', labelcolor='tab:blue')
-    ax2_vent.set_ylim(-0.1, 1.1)  # Keeps the binary line from touching the top/bottom frame
+    ax2_vent.set_ylim(-0.1, 1.5)  # Keeps the binary line from touching the top/bottom frame
 
     # Combined Legend handling
     lines1, labels1 = ax2_hum.get_legend_handles_labels()
@@ -93,4 +93,4 @@ def plot_HVAC_results_by_day(data_frame, day_to_plot):
 df = pd.read_csv('HVAC_Optimization_Results.csv')
 
 # Call the function for any specific day (e.g., Day 2)
-plot_HVAC_results_by_day(df, day_to_plot=100)
+plot_HVAC_results_by_day(df, day_to_plot= 35)
