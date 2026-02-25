@@ -184,9 +184,13 @@ def solve_milp(price,occ_r1,occ_r2):
             model.vent_inertia.add(model.v[1] >= model.v[0])
         if t == 2:
             model.vent_inertia.add(model.v[2] >= model.v[1])
-        if t >= 3:
+        if t >= 3 and t <=7:
             model.vent_inertia.add(
                 model.v[t-1] + model.v[t-2] + model.v[t-3] >= 3 * (model.v[t-1] - model.v[t])
+            ) 
+        if t >=8: 
+            model.vent_inertia.add(
+                 model.v[t] == 0
             )
 
     
