@@ -35,6 +35,7 @@ eta_vent    = data['humidity_vent_coeff'] # humidity decrease per hour when vent
 min_up_time = data['vent_min_up_time'] # minimum number of consecutive hours that ventilation must be ON once turned ON (hours)
 M = 1000 # big M constant for linearization of logical conditions in the overrule controllers (should be sufficiently large to not cut off any feasible solution, but not too large to avoid numerical issues)
 epsilon = 0.01
+
 # definition of the optimization model
 def solve_milp(price,occ_r1,occ_r2):  
     model = ConcreteModel() # creating an instance of the concrete model class 
@@ -63,7 +64,7 @@ def solve_milp(price,occ_r1,occ_r2):
     # 1. initial conditions for temperature
     model.temp_init = ConstraintList() 
     for r in model.R: 
-        model.temp_init.add(model.temp[r,0] == T0_prev) # initial temperature at time 0 is T0_prev, for every room and for every day 
+        model.temp_init.add(model.temp[r,0] == T0) # initial temperature at time 0 is T0_prev, for every room and for every day 
 
     # 2. initial conditions for humidity
     model.hum_init = ConstraintList() 
@@ -136,21 +137,13 @@ def solve_milp(price,occ_r1,occ_r2):
         for t in model.T:
             model.high_act.add(M * model.delta_high[r,t] >= model.temp[r,t] - T_high) 
 
-    # WRONG: READ THE ASSIGNEMENT
-    # # 5.8 high temperature overrule controller: memory 
-    # model.high_mem = ConstraintList()
-    # for r in model.R:
-    #     for t in model.T:
-    #         if t > 0:
-    #             model.high_mem.add(M * model.delta_high[r,t] >= (model.temp[r,t] - T_ok) - M * (1 - model.delta_high[r,t-1])) 
-
-    # 5.9 high temperature overrule controller: force power to 0 when activated 
+    # 5.8 high temperature overrule controller: force power to 0 when activated 
     model.power_off = ConstraintList() 
     for r in model.R:
         for t in model.T:
             model.power_off.add(model.p[r,t] <= P_max * (1 - model.delta_high[r,t])) 
 
-    # 5.10 high temperature overrule controller: if temp <= T_high, deactivate 
+    # 5.9 high temperature overrule controller: if temp <= T_high, deactivate 
     model.high_deact = ConstraintList()
     for r in model.R:
         for t in model.T:
@@ -177,12 +170,6 @@ def solve_milp(price,occ_r1,occ_r2):
     for t in model.T:
         model.hum_deact.add(M * (1 - model.delta_hum[t]) >= H_high - model.hum[t]) 
 
-    # NOT STATED IN THE ASSIGNMENT
-    # model.hum_limit = ConstraintList() 
-    # for t in model.T: 
-    #     if t>=8: 
-    #         model.hum_limit.add(model.hum[t] <= H_high) # humidity must be below the threshold in the last two hours of the day, to ensure comfort at the beginning of the next day
-
     # 7.ventilation system inertia 
     model.vent_inertia = ConstraintList()
     for t in model.T:
@@ -196,7 +183,7 @@ def solve_milp(price,occ_r1,occ_r2):
             ) 
         if t >=8: 
             model.vent_inertia.add(
-                 model.v[t] <= model.v[t-1] 
+                 model.v[t] <= model.v[t-1] # can't switch on the ventilation in the last 2 hours if it was off at hour 7, because it wouldn't be able to stay on for the minimum up time of 3 hours
             )
 
     
