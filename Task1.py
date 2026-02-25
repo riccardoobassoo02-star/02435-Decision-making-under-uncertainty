@@ -156,11 +156,6 @@ def solve_milp(price,occ_r1,occ_r2):
         for t in model.T:
             model.high_deact.add(M * (1 - model.delta_high[r,t]) >= T_high - model.temp[r,t]) 
 
-    # #  TO BE CHECKED 5.11 Conflict resolution between Low and High Temperature Overrule Controllers: both cannot be activated at the same time 
-    # model.conflict_res = ConstraintList()
-    # for r in model.R:
-    #     for t in model.T:
-    #         model.conflict_res.add(model.delta_low[r,t] + model.delta_high[r,t] <= 1)   
 
     # 6. HUMIDITY OVERRULE CONTROLLER
     # 6.1. initial condition — humidity overrule controller is deactivated at the beginning of the day
