@@ -101,6 +101,7 @@ def solve_milp(price,occ_r1,occ_r2):
             model.low_act.add(M * model.delta_low[r,t] >= T_low - model.temp[r,t]) 
 
     # 5.2 low temperature overrule controller: memory (if temp <= T_ok, controller must remain ON if it was previously activated)--OK
+    model.low_mem = ConstraintList()
     for r in model.R:
         for t in model.T:
             if t > 0:
