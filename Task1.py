@@ -3,16 +3,18 @@ import numpy as np
 import matplotlib.pyplot as plt 
 import pandas as pd
 from pyomo.environ import * 
-from SystemCharacteristics import get_fixed_data
-import os
-os.chdir(os.path.dirname(os.path.abspath(__file__)))
+from pathlib import Path
+from SystemCharacteristics import get_fixed_data 
+
 
 # load data 
-price_data = pd.read_csv('PriceData.csv') 
-occupancy_r1 = pd.read_csv("OccupancyRoom1.csv")
-occupancy_r2 = pd.read_csv("OccupancyRoom2.csv")
+FILE_DIR = Path(__file__).parent  # directory where this file is located
+DATA_DIR = FILE_DIR / 'data'  # name of the folder containing csv to be imported
+price_data = pd.read_csv(DATA_DIR / 'PriceData.csv') 
+occupancy_r1 = pd.read_csv(DATA_DIR / "OccupancyRoom1.csv")
+occupancy_r2 = pd.read_csv(DATA_DIR / "OccupancyRoom2.csv")
 
-# parameters extraction 
+# parameters extraction from system characteristics
 data = get_fixed_data()
 T           = data['num_timeslots'] # number of hours (10)
 T0_prev = data['previous_initial_temperature'] # every day's initial temperature
@@ -34,7 +36,7 @@ eta_occ     = data['humidity_occupancy_coeff'] # humidity increase per hour per 
 eta_vent    = data['humidity_vent_coeff'] # humidity decrease per hour when ventilation is ON (%)
 min_up_time = data['vent_min_up_time'] # minimum number of consecutive hours that ventilation must be ON once turned ON (hours)
 M = 1000 # big M constant for linearization of logical conditions in the overrule controllers (should be sufficiently large to not cut off any feasible solution, but not too large to avoid numerical issues)
-epsilon = 0.01
+epsilon = 0.01 # small value to express the strict inequality for the controllers rules
 
 # definition of the optimization model
 def solve_milp(price,occ_r1,occ_r2):  
@@ -52,7 +54,7 @@ def solve_milp(price,occ_r1,occ_r2):
     model.temp = Var(model.R, model.T, within=Reals) # temperature in each room at each time period (°C)
     model.hum  = Var(model.T, within=NonNegativeReals) # humidity at each time period (%)
      
-    # auxiliary variables 
+    # auxiliary variables (state)
     model.delta_low  = Var(model.R, model.T, within=Binary) # 1 when the low temperature overrule controller is activated, 0 otherwise
     model.delta_high = Var(model.R, model.T, within=Binary) # 1 when the high temperature overrule controller is activated, 0 otherwise
     model.delta_hum  = Var(model.T, within=Binary) # 1 when the humidity overrule controller is activated, 0 otherwise
@@ -61,16 +63,16 @@ def solve_milp(price,occ_r1,occ_r2):
     model.obj = Objective(expr = sum (price[t] * (model.p[1,t] + model.p[2,t] + P_vent * model.v[t]) for t in model.T), sense=minimize) # minimize total cost of heating and ventilation
 
     # constraints 
-    # 1. initial conditions for temperature
+    # 1. initial conditions for temperature--OK
     model.temp_init = ConstraintList() 
     for r in model.R: 
         model.temp_init.add(model.temp[r,0] == T0) # initial temperature at time 0 is T0_prev, for every room and for every day 
 
-    # 2. initial conditions for humidity
+    # 2. initial conditions for humidity--OK
     model.hum_init = ConstraintList() 
     model.hum_init.add(model.hum[0] == H0) # initial humidity at time 0 is H0, for every day  
 
-    # 3. temperature dynamics for each room and time period
+    # 3. temperature dynamics for each room and time period--OK
     model.temp_dyn = ConstraintList() 
     for t in model.T: 
         for r in model.R:
@@ -85,65 +87,51 @@ def solve_milp(price,occ_r1,occ_r2):
                                     + zeta_occ * occ
             )
                 
-    # 4. humidity dynamics for each time period
+    # 4. humidity dynamics for each time period--OK
     model.hum_dyn = ConstraintList() 
     for t in model.T: 
         if t > 0: 
             model.hum_dyn.add(model.hum[t] == model.hum[t-1] + eta_occ * (occ_r1[t-1] + occ_r2[t-1]) - eta_vent * model.v[t-1]) 
     
-    # 5. TEMPERATURE OVERRULE CONTROLLER  
-    # LOW TEMPERATURE OVERRULE CONTROLLER
-    # 5.1 initial condition — low temperature overrule controller is deactivated at the beginning of the day
-    # Note: at the beginning of the day, the temperature is T0_prev = 21°, which is above T_low. Therefore, the constraint should be useless, but we include it for completeness and to ensure the model is well-defined.
-    model.low_init = ConstraintList()
-    for r in model.R:
-        model.low_init.add(model.delta_low[r, 0] == 0)   
-
-    # 5.2 low temperature overrule controller: activation (if temp < T_low, controller must be ON)
+    # 5. TEMPERATURE OVERRULE CONTROLLER   
+    # 5.1 low temperature overrule controller: activation (if temp < T_low, controller must be ON)--OK
     model.low_act = ConstraintList()
-   
     for r in model.R:
         for t in model.T:
             model.low_act.add(M * model.delta_low[r,t] >= T_low - model.temp[r,t]) 
 
-    # 5.3 low temperature overrule controller: memory (if temp <= T_ok, controller must remain ON if it was previously activated)
+    # 5.2 low temperature overrule controller: memory (if temp <= T_ok, controller must remain ON if it was previously activated)--OK
     model.low_mem = ConstraintList()
     for r in model.R:
         for t in model.T:
             if t > 0:
                 model.low_mem.add(M * model.delta_low[r,t] >= (T_ok + epsilon - model.temp[r,t]) - M * (1 - model.delta_low[r,t-1]))
-    # 5.4 low temperature overrule controller: force power to max when activated
+    # 5.3 low temperature overrule controller: force power to max when activated--OK
     model.power_max = ConstraintList()
     for r in model.R:
         for t in model.T:
             model.power_max.add(model.p[r,t] >= P_max * model.delta_low[r,t]) 
 
-    # 5.5 low temperature overrule controller: if temp > T_ok, deactivate
+    # 5.4 low temperature overrule controller: if temp > T_ok, deactivate--OK
     model.low_deact = ConstraintList()
     for r in model.R:
         for t in model.T:
             model.low_deact.add(M * (1 - model.delta_low[r,t]) >= model.temp[r,t] - T_ok-epsilon) 
 
     # HIGH TEMPERATURE OVERRULE CONTROLLER
-    # 5.6 initial condition — high temperature overrule controller is deactivated at the beginning of the day
-    # Note: at the beginning of the day, the temperature is T0_prev = 21°, which is below T_high. Therefore, the constraint should be useless, but we include it for completeness and to ensure the model is well-defined.
-    model.high_init = ConstraintList()
-    for r in model.R:
-        model.high_init.add(model.delta_high[r, 0] == 0) 
-
-    # 5.7 high temperature overrule controller: activation 
+    # 5.5 high temperature overrule controller: activation 
     model.high_act = ConstraintList()
     for r in model.R:
         for t in model.T:
             model.high_act.add(M * model.delta_high[r,t] >= model.temp[r,t] - T_high) 
 
-    # 5.8 high temperature overrule controller: force power to 0 when activated 
+    # 5.6 high temperature overrule controller: force power to 0 when activated 
     model.power_off = ConstraintList() 
     for r in model.R:
         for t in model.T:
             model.power_off.add(model.p[r,t] <= P_max * (1 - model.delta_high[r,t])) 
 
-    # 5.9 high temperature overrule controller: if temp <= T_high, deactivate 
+    # 5.7 high temperature overrule controller: if temp <= T_high, deactivate 
     model.high_deact = ConstraintList()
     for r in model.R:
         for t in model.T:
@@ -151,47 +139,41 @@ def solve_milp(price,occ_r1,occ_r2):
 
 
     # 6. HUMIDITY OVERRULE CONTROLLER
-    # 6.1. initial condition — humidity overrule controller is deactivated at the beginning of the day
-    model.hum_ctrl_init = ConstraintList() 
-    model.hum_ctrl_init.add(model.delta_hum[0] == 0)  
-
-    # 6.2 activation
+    # 6.1 activation
     model.hum_act = ConstraintList()
     for t in model.T: 
         model.hum_act.add(M * model.delta_hum[t] >= model.hum[t] - H_high)  
 
-    # 6.3 ventilation on when humidity overrule controller is activated
+    # 6.2 ventilation on when humidity overrule controller is activated
     model.hum_force = ConstraintList()
     for t in model.T:
         model.hum_force.add(model.v[t] >= model.delta_hum[t]) 
 
-    # 6.4 deactivation: if humidity <= H_high, deactivate
+    # 6.3 deactivation: if humidity <= H_high, deactivate
     model.hum_deact = ConstraintList()
     for t in model.T:
         model.hum_deact.add(M * (1 - model.delta_hum[t]) >= H_high - model.hum[t]) 
 
-    # 7.ventilation system inertia 
+    # 7. VENTILATION SYSTEM INERTIA 
     model.vent_inertia = ConstraintList()
-    for t in model.T:
+    for t in model.T: 
+        # we need to manage the first two hours of the day separately, since the ventilation inertia constraint looks to the past
         if t == 1:
             model.vent_inertia.add(model.v[1] >= model.v[0])
         if t == 2:
             model.vent_inertia.add(model.v[2] >= model.v[1])
+        # from the fourth hour of the day, we can start to consider the ventilation inertia 
+        # remember: python index starts from 0
         if t >= 3:
             model.vent_inertia.add(
-                model.v[t-1] + model.v[t-2] + model.v[t-3] >= 3 * (model.v[t-1] - model.v[t])
-            ) 
-        if t >=8: 
-            model.vent_inertia.add(
-                 model.v[t] <= model.v[t-1] # can't switch on the ventilation in the last 2 hours if it was off at hour 7, because it wouldn't be able to stay on for the minimum up time of 3 hours
-            )
+                model.v[t-1] + model.v[t-2] + model.v[t-3] >= 3 * (model.v[t-1] - model.v[t])) 
 
     
     # solver call
     solver = SolverFactory('gurobi')
     result = solver.solve(model)
     if result.solver.termination_condition != TerminationCondition.optimal:
-        print(f"Warning: Day {day} did not solve to optimality")
+        print(f"Warning: Day {day} did not solve to optimality") # check if an optimal solution couldn't be found
 
     # extract results
     p_opt  = {(r,t): value(model.p[r,t])    for r in model.R for t in model.T}
@@ -234,10 +216,14 @@ for day in range(100):
         all_rows.append(row)
 
 results_df = pd.DataFrame(all_rows)
-results_df.to_csv('HVAC_Optimization_Results.csv', index=False)
+OUTPUT_DIR = FILE_DIR/ "results" 
+OUTPUT_DIR.mkdir(exist_ok=True)
+results_df.to_csv(OUTPUT_DIR / 'HVAC_Optimization_Results.csv', index=False)
 print("Results saved to HVAC_Optimization_Results.csv")
 
 # out of the for loop, calculates and prints the average daily cost over the 100 days
 average_cost = np.mean(daily_costs)
 print(f"Average daily electricity cost: {average_cost:.2f}") 
+total_cost = np.sum(daily_costs)
+print(f"Total cost over the 100 days: {total_cost:.2f}")
 

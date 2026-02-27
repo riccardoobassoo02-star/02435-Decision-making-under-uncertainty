@@ -5,9 +5,10 @@ Created on Sun Nov 16 13:14:45 2025
 @author: geots
 """
 import pandas as pd
-import matplotlib.pyplot as plt
-import os
-os.chdir(os.path.dirname(os.path.abspath(__file__)))
+import matplotlib.pyplot as plt 
+from pathlib import Path
+FILE_DIR = Path(__file__).parent  # directory where this file is located
+RESULTS_DIR = FILE_DIR / 'results'  # name of the folder containing csv to be imported
 
 def plot_HVAC_results_by_day(data_frame, day_to_plot):
     # 1. Filter the data for the specific day requested
@@ -90,7 +91,7 @@ def plot_HVAC_results_by_day(data_frame, day_to_plot):
 
 
 # Load your file
-df = pd.read_csv('HVAC_Optimization_Results.csv')
+df = pd.read_csv(RESULTS_DIR / 'HVAC_Optimization_Results.csv')
 
 # Call the function for any specific day
-plot_HVAC_results_by_day(df, day_to_plot= 62)
+plot_HVAC_results_by_day(df, day_to_plot= 32)
