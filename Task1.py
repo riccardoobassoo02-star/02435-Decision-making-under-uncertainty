@@ -63,16 +63,16 @@ def solve_milp(price,occ_r1,occ_r2):
     model.obj = Objective(expr = sum (price[t] * (model.p[1,t] + model.p[2,t] + P_vent * model.v[t]) for t in model.T), sense=minimize) # minimize total cost of heating and ventilation
 
     # constraints 
-    # 1. initial conditions for temperature
+    # 1. initial conditions for temperature--OK
     model.temp_init = ConstraintList() 
     for r in model.R: 
         model.temp_init.add(model.temp[r,0] == T0) # initial temperature at time 0 is T0_prev, for every room and for every day 
 
-    # 2. initial conditions for humidity
+    # 2. initial conditions for humidity--OK
     model.hum_init = ConstraintList() 
     model.hum_init.add(model.hum[0] == H0) # initial humidity at time 0 is H0, for every day  
 
-    # 3. temperature dynamics for each room and time period
+    # 3. temperature dynamics for each room and time period--OK
     model.temp_dyn = ConstraintList() 
     for t in model.T: 
         for r in model.R:
@@ -87,32 +87,31 @@ def solve_milp(price,occ_r1,occ_r2):
                                     + zeta_occ * occ
             )
                 
-    # 4. humidity dynamics for each time period
+    # 4. humidity dynamics for each time period--OK
     model.hum_dyn = ConstraintList() 
     for t in model.T: 
         if t > 0: 
             model.hum_dyn.add(model.hum[t] == model.hum[t-1] + eta_occ * (occ_r1[t-1] + occ_r2[t-1]) - eta_vent * model.v[t-1]) 
     
     # 5. TEMPERATURE OVERRULE CONTROLLER   
-    # 5.1 low temperature overrule controller: activation (if temp < T_low, controller must be ON)
+    # 5.1 low temperature overrule controller: activation (if temp < T_low, controller must be ON)--OK
     model.low_act = ConstraintList()
     for r in model.R:
         for t in model.T:
             model.low_act.add(M * model.delta_low[r,t] >= T_low - model.temp[r,t]) 
 
-    # 5.2 low temperature overrule controller: memory (if temp <= T_ok, controller must remain ON if it was previously activated)
-    model.low_mem = ConstraintList()
+    # 5.2 low temperature overrule controller: memory (if temp <= T_ok, controller must remain ON if it was previously activated)--OK
     for r in model.R:
         for t in model.T:
             if t > 0:
                 model.low_mem.add(M * model.delta_low[r,t] >= (T_ok + epsilon - model.temp[r,t]) - M * (1 - model.delta_low[r,t-1]))
-    # 5.3 low temperature overrule controller: force power to max when activated
+    # 5.3 low temperature overrule controller: force power to max when activated--OK
     model.power_max = ConstraintList()
     for r in model.R:
         for t in model.T:
             model.power_max.add(model.p[r,t] >= P_max * model.delta_low[r,t]) 
 
-    # 5.4 low temperature overrule controller: if temp > T_ok, deactivate
+    # 5.4 low temperature overrule controller: if temp > T_ok, deactivate--OK
     model.low_deact = ConstraintList()
     for r in model.R:
         for t in model.T:
