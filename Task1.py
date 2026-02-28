@@ -36,7 +36,7 @@ eta_occ     = data['humidity_occupancy_coeff'] # humidity increase per hour per 
 eta_vent    = data['humidity_vent_coeff'] # humidity decrease per hour when ventilation is ON (%)
 min_up_time = data['vent_min_up_time'] # minimum number of consecutive hours that ventilation must be ON once turned ON (hours)
 M = 1000 # big M constant for linearization of logical conditions in the overrule controllers (should be sufficiently large to not cut off any feasible solution, but not too large to avoid numerical issues)
-epsilon = 0.01 # small value to express the strict inequality for the controllers rules
+epsilon = 0.00 # small value to express the strict inequality for the controllers rules
 
 # definition of the optimization model
 def solve_milp(price,occ_r1,occ_r2):  
