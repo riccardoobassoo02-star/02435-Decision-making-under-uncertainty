@@ -6,7 +6,6 @@ from pyomo.environ import *
 from pathlib import Path
 from SystemCharacteristics import get_fixed_data 
 
-
 # load data 
 FILE_DIR = Path(__file__).parent  # directory where this file is located
 DATA_DIR = FILE_DIR / 'data'  # name of the folder containing csv to be imported
@@ -110,7 +109,7 @@ def solve_milp(price,occ_r1,occ_r2):
         for t in model.T:
             if t > 0:
                 model.low_mem.add(M * model.delta_low[r,t] >= (T_ok + epsilon - model.temp[r,t]) - M * (1 - model.delta_low[r,t-1]))
-    
+                # epsilon is forcing the controller to remain active even when T = T_ok
     # 5.3 low temperature overrule controller: force power to max when activated
     model.power_max = ConstraintList()
     for r in model.R:
@@ -121,7 +120,7 @@ def solve_milp(price,occ_r1,occ_r2):
     model.low_deact = ConstraintList()
     for r in model.R:
         for t in model.T:
-            model.low_deact.add(M * (1 - model.delta_low[r,t]) >= model.temp[r,t] - T_ok-epsilon) 
+            model.low_deact.add(M * (1 - model.delta_low[r,t]) >= model.temp[r,t] - T_ok) 
 
     # HIGH TEMPERATURE OVERRULE CONTROLLER
     # 5.5 high temperature overrule controller: activation 
@@ -136,12 +135,11 @@ def solve_milp(price,occ_r1,occ_r2):
         for t in model.T:
             model.power_off.add(model.p[r,t] <= P_max * (1 - model.delta_high[r,t])) 
 
-    # 5.7 high temperature overrule controller: if temp <= T_high, deactivate 
+    # 5.7 high temperature overrule controller: if temp <= T_high, deactivate
     model.high_deact = ConstraintList()
     for r in model.R:
         for t in model.T:
             model.high_deact.add(M * (1 - model.delta_high[r,t]) >= T_high - model.temp[r,t]) 
-
 
     # 6. HUMIDITY OVERRULE CONTROLLER
     # 6.1 activation
@@ -172,7 +170,6 @@ def solve_milp(price,occ_r1,occ_r2):
             model.vent_inertia.add(
                 model.v[t-1] + model.v[t-2] + model.v[t-3] >= 3 * (model.v[t-1] - model.v[t])) 
 
-    
     # solver call
     solver = SolverFactory('gurobi')
     result = solver.solve(model)
@@ -220,7 +217,7 @@ for day in range(100):
 results_df = pd.DataFrame(all_rows)
 OUTPUT_DIR = FILE_DIR/ "results" 
 OUTPUT_DIR.mkdir(exist_ok = True)
-results_df.to_csv(OUTPUT_DIR / 'HVAC_Optimization_Results.csv', index = False)
+results_df.to_csv(OUTPUT_DIR / 'HVAC_Optimization_Results.csv', index = False) 
 print("Results saved to HVAC_Optimization_Results.csv (results folder)")
 
 # out of the for loop, calculates and prints the average daily cost over the 100 days
