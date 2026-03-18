@@ -12,7 +12,7 @@ NOT TO BE CHANGED BY THE STUDENTS
 
 import numpy as np
 import matplotlib.pyplot as plt
-import SystemCharacteristics
+from Utils import SystemCharacteristics
 
 
 def price_model(current_price, previous_price):
@@ -41,41 +41,41 @@ def price_model(current_price, previous_price):
 # -----------------------------
 # Example Use: Generate and plot trajectories
 # -----------------------------
-params = SystemCharacteristics.get_fixed_data()
-T = int(params['num_timeslots'])
+# params = SystemCharacteristics.get_fixed_data()
+# T = int(params['num_timeslots'])
 
-num_paths = 100
-all_paths = []
+# num_paths = 100
+# all_paths = []
 
-for i in range(num_paths):
-    # initialize with current price
-    traj = [np.random.uniform(2, 8)]
+# for i in range(num_paths):
+#     # initialize with current price
+#     traj = [np.random.uniform(2, 8)]
 
-    for t in range(1, T):
-        prev = traj[-1]
-        prev_prev = traj[-2] if t > 1 else 6 # arbitrary previous price for t=1
-        traj.append(price_model(prev, prev_prev))
+#     for t in range(1, T):
+#         prev = traj[-1]
+#         prev_prev = traj[-2] if t > 1 else 6 # arbitrary previous price for t=1
+#         traj.append(price_model(prev, prev_prev))
 
-    all_paths.append(traj)
+#     all_paths.append(traj)
 
 
-# -----------------------------
-# Plot
-# -----------------------------
-plt.figure(figsize=(10, 5))
+# # -----------------------------
+# # Plot
+# # -----------------------------
+# plt.figure(figsize=(10, 5))
 
-for i, traj in enumerate(all_paths):
-    plt.plot(range(T), traj, alpha=0.8, label=f"Path {i+1}")
+# for i, traj in enumerate(all_paths):
+#     plt.plot(range(T), traj, alpha=0.8, label=f"Path {i+1}")
 
-plt.xlabel("Time")
-plt.ylabel("Price")
-plt.title("Sample Electricity Price Trajectories")
-plt.grid(True, linestyle="--", alpha=0.4)
-#plt.legend(loc="upper right", fontsize=8)
-plt.tight_layout()
-plt.show()
+# plt.xlabel("Time")
+# plt.ylabel("Price")
+# plt.title("Sample Electricity Price Trajectories")
+# plt.grid(True, linestyle="--", alpha=0.4)
+# #plt.legend(loc="upper right", fontsize=8)
+# plt.tight_layout()
+# plt.show()
 
-import pandas as pd
+# import pandas as pd
 
-#pd.DataFrame(all_paths).to_csv("OutOfSamplePriceData.csv", index=False)
+# #pd.DataFrame(all_paths).to_csv("OutOfSamplePriceData.csv", index=False)
 

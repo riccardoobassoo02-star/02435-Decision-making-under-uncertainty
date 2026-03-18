@@ -82,14 +82,14 @@ def check_and_sanitize_action(policy, state, PowerMax):
 
 ### Example use
 
-class MyPolicy:
-    def select_action(self, state):
-        return {"p1": 50, "p2": -330, "v": 'something_crazy'}
+# class MyPolicy:
+#     def select_action(self, state):
+#         return {"p1": 50, "p2": -330, "v": 'something_crazy'}
 
-policy = MyPolicy()
+# policy = MyPolicy()
 
-state = {"T1": 21}
-PowerMax = {1: 3.0, 2: 3.0}
+# state = {"T1": 21}
+# PowerMax = {1: 3.0, 2: 3.0}
 
-action = check_and_sanitize_action(policy, state, PowerMax)
-print(action)
+# action = check_and_sanitize_action(policy, state, PowerMax)
+# print(action)
