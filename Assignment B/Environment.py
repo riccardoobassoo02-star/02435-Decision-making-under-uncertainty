@@ -93,16 +93,18 @@ def run_environment(policy, n_experiments, n_hours):
 
 
             # Policy takes a decision based on the state
-            decision = policy.select_action(state)
+            # decision = policy.select_action(state)
 
             # Evaluate policy's decision
-            pass
+            POWER_MAX = {1 : data["heating_max_power"], 2 : data["heating_max_power"]}
+            decision = Checks.check_and_sanitize_action(policy, state, POWER_MAX)
+            # print(sanitazied_decision)
 
 
             # Update decision variables
-            V  = 1 if (humidity > data["humidity_threshold"]) or (0 < vent_counter < 3) else decision["VentilationON"] 
-            P1 = decision["HeatPowerRoom1"] if not is_override_room1 else data["heating_max_power"]
-            P2 = decision["HeatPowerRoom2"] if not is_override_room2 else data["heating_max_power"]
+            V  = 1 if (humidity > data["humidity_threshold"]) or (0 < vent_counter < 3) else decision["v"] 
+            P1 = decision["p1"] if not is_override_room1 else data["heating_max_power"]
+            P2 = decision["p2"] if not is_override_room2 else data["heating_max_power"]
 
 
             # Update consecutive ventilation usage counter
@@ -111,9 +113,9 @@ def run_environment(policy, n_experiments, n_hours):
             else:
                 vent_counter += 1
 
-            print("HeatPowerRoom1", decision["HeatPowerRoom1"], P1)
-            print("HeatPowerRoom2", decision["HeatPowerRoom2"], P2)
-            print("VentilationON ", decision["VentilationON"], V)
+            print("HeatPowerRoom1", decision["p1"], P1)
+            print("HeatPowerRoom2", decision["p2"], P2)
+            print("VentilationON ", decision["v"], V)
 
             # Calculate objective function
             objective_value += price_matrix[day][hour] * (V * data["ventilation_power"] + P1 + P2) 
