@@ -8,9 +8,9 @@ Created on Mon Nov 17 11:14:31 2025
 from pyomo.environ import *
 from sklearn.cluster import KMeans
 import numpy as np
-from PriceProcessRestaurant import price_model
-from OccupancyProcessRestaurant import next_occupancy_levels
-from SystemCharacteristics import get_fixed_data
+from Utils.PriceProcessRestaurant import price_model
+from Utils.OccupancyProcessRestaurant import next_occupancy_levels
+from Utils.SystemCharacteristics import get_fixed_data
 
 # parameters extraction from system characteristics
 data        = get_fixed_data()
