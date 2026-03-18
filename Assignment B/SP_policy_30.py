@@ -686,134 +686,140 @@ def build_tree(state, H, B, N_samples=100):
 #     return scenarios
 
 
-# SOLVE SP
 def solve_sp(state, nodes):
     """
     Builds and solves the multi-stage SP MILP on the scenario tree.
+    Uses the correct model from the Solution to Assignment Part A.
     Returns the here-and-now decisions (p1, p2, v) for tau=0.
     """
- 
+
     model = ConcreteModel()
- 
+
     # ------------------------------------------------------------------
     # SETUP: node lookups and useful groupings
     # ------------------------------------------------------------------
-    node_by_id    = {n["id"]: n for n in nodes}
-    nodes_future  = [n for n in nodes if n["tau"] >= 1]  # tau=1,2,3
- 
+    node_by_id   = {n["id"]: n for n in nodes}
+    nodes_future = [n for n in nodes if n["tau"] >= 1]  # tau=1,2,3
+
     # current absolute time (for T_out indexing)
     t_now = state["current_time"]
- 
-    # low override initial state (parameters from environment)
+
+    # low override initial state from environment (tau=0)
     low_override_init = {1: state["low_override_r1"],
                          2: state["low_override_r2"]}
- 
+
     # ventilation inertia from past decisions
-    vent_counter    = state["vent_counter"]
+    vent_counter     = state["vent_counter"]
     remaining_forced = max(0, min_up_time - vent_counter) if vent_counter > 0 else 0
-    v_prev          = 1 if vent_counter > 0 else 0  # was vent ON before tau=0?
- 
+    v_prev           = 1 if vent_counter > 0 else 0  # was vent ON before tau=0?
+
     # ------------------------------------------------------------------
     # SETS
     # ------------------------------------------------------------------
     model.R     = RangeSet(1, 2)
     model.NODES = Set(initialize=[n["id"] for n in nodes_future])
- 
+
     # ------------------------------------------------------------------
     # VARIABLES
     # ------------------------------------------------------------------
- 
+
     # here-and-now (tau=0) — shared across all scenarios
     model.p0 = Var(model.R, within=NonNegativeReals, bounds=(0, P_max))
     model.v0 = Var(within=Binary)
-    model.s0 = Var(within=Binary)  # startup indicator at tau=0
- 
+    model.s0 = Var(within=Binary)  # ventilation startup indicator at tau=0
+
     # future nodes (tau >= 1) — one variable per node
-    model.p          = Var(model.R, model.NODES, within=NonNegativeReals, bounds=(0, P_max))
-    model.v          = Var(model.NODES, within=Binary)
-    model.s          = Var(model.NODES, within=Binary)   # startup indicator
-    model.temp       = Var(model.R, model.NODES, within=Reals)
-    model.hum        = Var(model.NODES, within=NonNegativeReals)
-    model.delta_low  = Var(model.R, model.NODES, within=Binary)
+    model.p    = Var(model.R, model.NODES, within=NonNegativeReals, bounds=(0, P_max))
+    model.v    = Var(model.NODES, within=Binary)
+    model.s    = Var(model.NODES, within=Binary)   # ventilation startup indicator
+    model.temp = Var(model.R, model.NODES, within=Reals)
+    model.hum  = Var(model.NODES, within=NonNegativeReals)
+
+    # --- solution model: 3 separate variables for low-temp overrule ---
+    model.y_low = Var(model.R, model.NODES, within=Binary)  # 1 if temp < T_low
+    model.y_ok  = Var(model.R, model.NODES, within=Binary)  # 1 if temp > T_ok
+    model.u     = Var(model.R, model.NODES, within=Binary)  # 1 if overrule active
+
+    # high-temp and humidity overrule
     model.delta_high = Var(model.R, model.NODES, within=Binary)
     model.delta_hum  = Var(model.NODES, within=Binary)
- 
+
     # ------------------------------------------------------------------
     # HELPER FUNCTIONS
-    # return the parent's variable or state value for each quantity
+    # return parent's variable or known state value for each quantity
     # ------------------------------------------------------------------
     def v_par(node):
         """ventilation at parent node"""
         return model.v0 if node["tau"] == 1 else model.v[node["parent_id"]]
- 
+
     def p_par(r, node):
         """heating power at parent node"""
         return model.p0[r] if node["tau"] == 1 else model.p[r, node["parent_id"]]
- 
+
     def temp_par(r, node):
         """temperature at parent node"""
         if node["tau"] == 1:
             return state["T1"] if r == 1 else state["T2"]
         return model.temp[r, node["parent_id"]]
- 
+
     def temp_other_par(r, node):
         """temperature of the OTHER room at parent node"""
         r_other = 3 - r
         if node["tau"] == 1:
             return state["T1"] if r_other == 1 else state["T2"]
         return model.temp[r_other, node["parent_id"]]
- 
+
     def hum_par(node):
         """humidity at parent node"""
         return state["H"] if node["tau"] == 1 else model.hum[node["parent_id"]]
- 
+
     def occ_par(r, node):
-        """occupancy at parent node (parameter from tree or state)"""
+        """occupancy at parent node — parameter from tree or state"""
         if node["tau"] == 1:
             return state["Occ1"] if r == 1 else state["Occ2"]
         parent = node_by_id[node["parent_id"]]
         return parent["occ1"] if r == 1 else parent["occ2"]
- 
-    def delta_low_par(r, node):
-        """low override status at parent — parameter at tau=1, variable otherwise"""
+
+    def u_par(r, node):
+        """low-temp overrule status at parent — parameter at tau=1, variable otherwise"""
         if node["tau"] == 1:
             return low_override_init[r]  # known from state
-        return model.delta_low[r, node["parent_id"]]
- 
+        return model.u[r, node["parent_id"]]
+
     # ------------------------------------------------------------------
     # OBJECTIVE FUNCTION
     # minimize expected cost over the lookahead horizon
     # ------------------------------------------------------------------
- 
-    # certain cost at tau=0
+
+    # certain cost at tau=0 (price is known)
     obj_expr = state["price_t"] * (
         model.p0[1] + model.p0[2] + P_vent * model.v0
     )
- 
-    # expected cost at future nodes, weighted by probability
+
+    # expected cost at future nodes, weighted by probability of reaching them
     for n in nodes_future:
         obj_expr += n["prob"] * n["price"] * (
             model.p[1, n["id"]] + model.p[2, n["id"]] + P_vent * model.v[n["id"]]
         )
- 
+
     model.obj = Objective(expr=obj_expr, sense=minimize)
- 
+
     # ------------------------------------------------------------------
     # CONSTRAINTS
     # ------------------------------------------------------------------
     model.c = ConstraintList()
- 
+
     for n in nodes_future:
         nid = n["id"]
         tau = n["tau"]
- 
-        # outdoor temperature at parent's absolute time
+
+        # outdoor temperature at the absolute time of this node's parent
         t_abs = t_now + tau - 1
         t_out = T_out[min(t_abs, len(T_out) - 1)]
- 
+
         for r in [1, 2]:
- 
-            # C1 — temperature dynamics
+
+            # C1 — temperature dynamics (from solution eq. 2)
             model.c.add(
                 model.temp[r, nid] ==
                     temp_par(r, n)
@@ -823,53 +829,74 @@ def solve_sp(state, nodes):
                     - zeta_cool * v_par(n)
                     + zeta_occ  * occ_par(r, n)
             )
- 
-            # C3 — low temp overrule: activation
-            model.c.add(M * model.delta_low[r, nid] >= T_low - model.temp[r, nid])
- 
-            # C4 — low temp overrule: memory (hysteresis)
-            model.c.add(
-                M * model.delta_low[r, nid] >=
-                (T_ok + epsilon - model.temp[r, nid]) - M * (1 - delta_low_par(r, n))
-            )
- 
-            # C5 — low temp overrule: deactivation above T_ok
-            model.c.add(M * (1 - model.delta_low[r, nid]) >= model.temp[r, nid] - T_ok - epsilon)
- 
-            # C6 — low temp overrule: force power to max
-            model.c.add(model.p[r, nid] >= P_max * model.delta_low[r, nid])
- 
-            # C7 — high temp overrule: activation
-            model.c.add(M * model.delta_high[r, nid] >= model.temp[r, nid] - T_high)
- 
-            # C8 — high temp overrule: deactivation
-            model.c.add(M * (1 - model.delta_high[r, nid]) >= T_high - model.temp[r, nid])
- 
-            # C9 — high temp overrule: force power to zero
+
+            # ----------------------------------------------------------
+            # LOW-TEMP OVERRULE — solution model (eq. 8-16)
+            # three separate binary variables: y_low, y_ok, u
+            # ----------------------------------------------------------
+
+            # C3a — detect if temp < T_low (eq. 8-9)
+            model.c.add(model.temp[r, nid] <= T_low + M * (1 - model.y_low[r, nid]))
+            model.c.add(model.temp[r, nid] >= T_low - M * model.y_low[r, nid])
+
+            # C3b — detect if temp > T_ok (eq. 10-11)
+            model.c.add(model.temp[r, nid] >= T_ok - M * (1 - model.y_ok[r, nid]))
+            model.c.add(model.temp[r, nid] <= T_ok + M * model.y_ok[r, nid])
+
+            # C4 — activation: if temp < T_low → u=1 (eq. 12)
+            model.c.add(model.u[r, nid] >= model.y_low[r, nid])
+
+            # C5 — memory: u can only stay ON if it was ON before (eq. 13)
+            model.c.add(model.u[r, nid] <= u_par(r, n) + model.y_low[r, nid])
+
+            # C6 — force power to max when overrule is active (eq. 14)
+            model.c.add(model.p[r, nid] >= P_max * model.u[r, nid])
+
+            # C7 — deactivation: u must turn OFF if temp > T_ok (eq. 15-16)
+            model.c.add(model.u[r, nid] >= u_par(r, n) - model.y_ok[r, nid])
+            model.c.add(model.u[r, nid] <= 1 - model.y_ok[r, nid])
+
+            # ----------------------------------------------------------
+            # HIGH-TEMP OVERRULE (eq. 5-7)
+            # ----------------------------------------------------------
+
+            # C8 — detect if temp >= T_high
+            model.c.add(model.temp[r, nid] >= T_high - M * (1 - model.delta_high[r, nid]))
+            model.c.add(model.temp[r, nid] <= T_high + M * model.delta_high[r, nid])
+
+            # C9 — force power to zero when high-temp overrule is active
             model.c.add(model.p[r, nid] <= P_max * (1 - model.delta_high[r, nid]))
- 
-        # C2 — humidity dynamics
+
+        # C2 — humidity dynamics (eq. 3)
         model.c.add(
             model.hum[nid] ==
                 hum_par(n)
                 + eta_occ * (occ_par(1, n) + occ_par(2, n))
                 - eta_vent * v_par(n)
         )
- 
-        # C10 — humidity overrule: activation and deactivation
+
+        # ----------------------------------------------------------
+        # HUMIDITY OVERRULE (eq. 21)
+        # ----------------------------------------------------------
+
+        # C10 — detect if humidity > H_high
         model.c.add(M * model.delta_hum[nid] >= model.hum[nid] - H_high)
         model.c.add(M * (1 - model.delta_hum[nid]) >= H_high - model.hum[nid])
- 
-        # C11 — humidity overrule: force ventilation ON
+
+        # C11 — force ventilation ON when humidity overrule is active
         model.c.add(model.v[nid] >= model.delta_hum[nid])
- 
-        # C12 — ventilation startup definition at this node
+
+        # ----------------------------------------------------------
+        # VENTILATION INERTIA (eq. 17-20)
+        # ----------------------------------------------------------
+
+        # C12 — startup detection at this node
         model.c.add(model.s[nid] >= model.v[nid] - v_par(n))
         model.c.add(model.s[nid] <= model.v[nid])
         model.c.add(model.s[nid] <= 1 - v_par(n))
- 
-        # C13 — minimum uptime: if startup at any ancestor within
-        # min_up_time-1 steps, this node must have v=1
+
+        # C13 — minimum uptime: if any ancestor within min_up_time-1
+        # steps had a startup, this node must have v=1
         ancestor = n
         for depth in range(1, min_up_time):
             if ancestor["parent_id"] is None:
@@ -881,41 +908,41 @@ def solve_sp(state, nodes):
                 break
             else:
                 model.c.add(model.v[nid] >= model.s[ancestor["id"]])
- 
+
     # ------------------------------------------------------------------
-    # HERE-AND-NOW VENTILATION CONSTRAINTS
+    # HERE-AND-NOW VENTILATION CONSTRAINTS (tau=0)
     # ------------------------------------------------------------------
- 
-    # startup at tau=0
+
+    # startup definition at tau=0
     model.c.add(model.s0 >= model.v0 - v_prev)
     model.c.add(model.s0 <= model.v0)
     model.c.add(model.s0 <= 1 - v_prev)
- 
-    # forced ventilation from vent_counter (past decisions)
+
+    # forced ventilation from vent_counter (past decisions carry over)
     if remaining_forced >= 1:
-        model.v0.fix(1)  # must be ON at tau=0
- 
+        model.v0.fix(1)  # tau=0 must be ON
+
     for n in nodes_future:
         if n["tau"] == 1 and remaining_forced >= 2:
-            model.v[n["id"]].fix(1)  # must be ON at tau=1 for all nodes
- 
+            model.v[n["id"]].fix(1)  # tau=1 must be ON for all nodes
+
     # ------------------------------------------------------------------
     # SOLVE
     # ------------------------------------------------------------------
     solver = SolverFactory('gurobi')
     result = solver.solve(model)
- 
+
     if result.solver.termination_condition != TerminationCondition.optimal:
         print("[WARNING] SP did not solve to optimality — returning zeros")
         return 0.0, 0.0, 0
- 
+
     # ------------------------------------------------------------------
     # EXTRACT HERE-AND-NOW DECISIONS (tau=0 only)
     # ------------------------------------------------------------------
     p1 = value(model.p0[1])
     p2 = value(model.p0[2])
     v  = int(value(model.v0) > 0.5)
- 
+
     return p1, p2, v 
 
 # ENTRY POINT (called by the environment)
