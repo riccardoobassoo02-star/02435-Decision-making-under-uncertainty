@@ -1,5 +1,5 @@
 from Utils import SystemCharacteristics, Checks
-import Policy_Restaurant
+import SP_policy_30
 
 import numpy as np
 
