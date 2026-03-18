@@ -64,11 +64,11 @@ def check_and_sanitize_action(policy, state, PowerMax):
     # 2. Clip to feasible set (or fail → dummy)
     # ---------------------------------------
     try:
-        action["p1"] = float(np.clip(action["p1"], 0, PowerMax[1]))
-        action["p2"] = float(np.clip(action["p2"], 0, PowerMax[2]))
+        action["HeatPowerRoom1"] = float(np.clip(action["HeatPowerRoom1"], 0, PowerMax[1]))
+        action["HeatPowerRoom2"] = float(np.clip(action["HeatPowerRoom2"], 0, PowerMax[2]))
     
         # ventilation: threshold to {0,1}
-        action["v"] = int(float(action["v"]) > 0.5)
+        action["VentilationON"] = int(float(action["VentilationON"]) > 0.5)
 
     except Exception as e:
         print(f"[WARNING] Action clipping failed: {e}. Using dummy action.")
@@ -77,7 +77,7 @@ def check_and_sanitize_action(policy, state, PowerMax):
     # ---------------------------------------
     # Return sanitized action
     # ---------------------------------------
-    return {"p1": action["p1"], "p2": action["p2"], "v": action["v"]}
+    return {"HeatPowerRoom1": action["HeatPowerRoom1"], "HeatPowerRoom2": action["HeatPowerRoom2"], "VentilationON": action["VentilationON"]}
 
 
 ### Example use
