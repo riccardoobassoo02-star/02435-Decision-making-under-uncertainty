@@ -1,7 +1,7 @@
 from Utils import SystemCharacteristics, Checks
 import SP_policy_30
-import Policy_Restaurant
-
+import warnings
+warnings.filterwarnings("ignore")
 
 import numpy as np
 
@@ -71,8 +71,8 @@ def run_environment(policy, n_experiments, n_hours):
             is_override_room1 = update_overrule_controler_state(is_override_room1, temperature_room1, data)
             is_override_room2 = update_overrule_controler_state(is_override_room2, temperature_room2, data)
 
-            print("Temperatures: ", temperature_room1, temperature_room2)
-            print("Humidity: ", humidity)
+            #print("Temperatures: ", temperature_room1, temperature_room2)
+            #print("Humidity: ", humidity)
             # print("Overrule controlers: ", is_override_room1, is_override_room2)
 
 
@@ -93,12 +93,12 @@ def run_environment(policy, n_experiments, n_hours):
 
 
             # Policy takes a decision based on the state
-            decision = policy.select_action(state)
-            print("decision: ", decision)
+            #decision = policy.select_action(state)
+            #print("decision: ", decision)
 
             # Evaluate policy's decision
-            # POWER_MAX = {1 : data["heating_max_power"], 2 : data["heating_max_power"]}
-            # decision = Checks.check_and_sanitize_action(policy, state, POWER_MAX)
+            POWER_MAX = {1 : data["heating_max_power"], 2 : data["heating_max_power"]}
+            decision = Checks.check_and_sanitize_action(policy, state, POWER_MAX)
             # print(sanitazied_decision)
 
 
@@ -120,7 +120,7 @@ def run_environment(policy, n_experiments, n_hours):
 
             # Calculate objective function
             objective_value += price_matrix[day][hour] * (V * data["ventilation_power"] + P1 + P2) 
-            print("\n")
+            #print("\n")
 
         print("Objective: ", objective_value)
 
@@ -131,7 +131,7 @@ def run_environment(policy, n_experiments, n_hours):
 
 
 # run_environment(Policy_Restaurant, n_experiments=1, n_hours=10)
-run_environment(SP_policy_30, n_experiments=1, n_hours=10)
+run_environment(SP_policy_30, n_experiments=100, n_hours=10)
 
            
 

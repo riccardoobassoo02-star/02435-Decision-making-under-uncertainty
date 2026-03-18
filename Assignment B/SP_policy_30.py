@@ -222,7 +222,7 @@ def solve_sp(state, nodes):
 
     def u_par(r, node):
         if node["tau"] == 1:
-            return low_override_init[r]   # known parameter from state
+            return int(low_override_init[r])   # ← int(), non bool
         return model.u[r, node["parent_id"]]
 
     # ------------------------------------------------------------------
@@ -350,7 +350,7 @@ def solve_sp(state, nodes):
 # ------------------------------------------------------------------
 def select_action(state):
     try:
-        H, B = 3, 3
+        H, B = 3, 2
         nodes = build_tree(state, H=H, B=B, N_samples=100)
         p1, p2, v = solve_sp(state, nodes)
         HereAndNowActions = {
