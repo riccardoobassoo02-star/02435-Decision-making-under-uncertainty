@@ -1,11 +1,10 @@
 from Utils import SystemCharacteristics, Checks
 import SP_policy_30
-import warnings
-warnings.filterwarnings("ignore")
 
 import numpy as np
-
-# Not finished yet
+import matplotlib.pyplot as plt
+import warnings
+warnings.filterwarnings("ignore")
 
 
 def update_overrule_controler_state(overrule_state, temperature, data):
@@ -29,110 +28,241 @@ def calculate_room_temperature(P, occupancy, prev_temperature, other_room_prev_t
     )
 
 
-def run_environment(policy, n_experiments, n_hours):
+def _plot_experiment(rep, day, day_log, price_series=None, temp_thresholds=None, humidity_threshold=None):
+    """Plot two-room view with power vs temperature (twin axes) and thresholds."""
+    hours = day_log["hour"]
+    P1 = day_log["P1"]
+    P2 = day_log["P2"]
+    T1 = day_log["T1"]
+    T2 = day_log["T2"]
+    H = day_log["H"]
+    V = day_log["V"]
+
+    fig, axs = plt.subplots(3, 1, figsize=(14, 15), sharex=True)
+    fig.suptitle(f"Replication {rep+1} - Experiment {day+1}")
+
+    # Room 1: Power and temperature
+    ax1 = axs[0]
+    ax1.plot(hours, P1, '-o', color='red', label='Heating Power R1')
+    ax1.set_ylabel('Power R1 [kW]', color='red')
+    ax1.tick_params(axis='y', labelcolor='red')
+    ax1.grid(True)
+
+    ax1b = ax1.twinx()
+    ax1b.plot(hours, T1, '-s', color='green', label='Temp R1')
+    ax1b.set_ylabel('Temp R1 [°C]', color='green')
+    ax1b.tick_params(axis='y', labelcolor='green')
+    if temp_thresholds is not None:
+        min_thr, ok_thr = temp_thresholds
+        ax1b.axhline(min_thr, color='cyan', linestyle='--', label='Min comfort temp')
+        ax1b.axhline(ok_thr, color='magenta', linestyle='--', label='OK temp')
+
+    handles1, labels1 = ax1.get_legend_handles_labels()
+    handles1b, labels1b = ax1b.get_legend_handles_labels()
+    ax1.legend(handles1 + handles1b, labels1 + labels1b, loc='upper right')
+    ax1.set_title('Room 1: Power and Temperature')
+
+    # Room 2: Power and temperature
+    ax2 = axs[1]
+    ax2.plot(hours, P2, '-o', color='orange', label='Heating Power R2')
+    ax2.set_ylabel('Power R2 [kW]', color='orange')
+    ax2.tick_params(axis='y', labelcolor='orange')
+    ax2.grid(True)
+
+    ax2b = ax2.twinx()
+    ax2b.plot(hours, T2, '-s', color='olive', label='Temp R2')
+    ax2b.set_ylabel('Temp R2 [°C]', color='olive')
+    ax2b.tick_params(axis='y', labelcolor='olive')
+    if temp_thresholds is not None:
+        min_thr, ok_thr = temp_thresholds
+        ax2b.axhline(min_thr, color='cyan', linestyle='--', label='Min comfort temp')
+        ax2b.axhline(ok_thr, color='magenta', linestyle='--', label='OK temp')
+
+    handles2, labels2 = ax2.get_legend_handles_labels()
+    handles2b, labels2b = ax2b.get_legend_handles_labels()
+    ax2.legend(handles2 + handles2b, labels2 + labels2b, loc='upper right')
+    ax2.set_title('Room 2: Power and Temperature')
+
+    # Lower plot: humidity, ventilation and electricity price
+    ax3 = axs[2]
+    ax3.plot(hours, H, '-o', color='purple', label='Humidity')
+    ax3.set_ylabel('Humidity [%]', color='purple')
+    ax3.tick_params(axis='y', labelcolor='purple')
+    ax3.grid(True)
+    if humidity_threshold is not None:
+        ax3.axhline(humidity_threshold, color='gray', linestyle='--', label='Humidity Threshold')
+
+    if price_series is not None:
+        ax3b = ax3.twinx()
+        ax3b.plot(hours, price_series, '-o', color='brown', label='Electricity Price')
+        ax3b.set_ylabel('Price [€/kWh]', color='brown')
+        ax3b.tick_params(axis='y', labelcolor='brown')
+
+        # Add ventilation to the same twin axis or separate
+        ax3c = ax3.twinx()
+        ax3c.plot(hours, V, '-s', color='blue', label='Ventilation')
+        ax3c.set_ylabel('Ventilation', color='blue')
+        ax3c.tick_params(axis='y', labelcolor='blue')
+        ax3c.set_ylim(-0.1, 1.1)
+        # Position ax3c to the right of ax3b
+        ax3c.spines["right"].set_position(("axes", 1.1))
+
+    handles3, labels3 = ax3.get_legend_handles_labels()
+    if price_series is not None:
+        handles3b, labels3b = ax3b.get_legend_handles_labels()
+        handles3c, labels3c = ax3c.get_legend_handles_labels()
+        ax3.legend(handles3 + handles3b + handles3c, labels3 + labels3b + labels3c, loc='upper right')
+    else:
+        ax3.legend(handles3, labels3, loc='upper right')
+
+    ax3.set_xlabel('Hour')
+    ax3.set_title('Humidity, Ventilation and Electricity Price')
+
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    plt.show()
+
+
+def run_environment(policy, n_experiments=1, n_hours=10, n_repetitions=1, plot=False):  
     # Import data
     data = SystemCharacteristics.get_fixed_data()
     price_matrix      = np.genfromtxt("Data/PriceData.csv",      delimiter=",", skip_header=1)
     occupancy1_matrix = np.genfromtxt("Data/OccupancyRoom1.csv", delimiter=",", skip_header=1)
     occupancy2_matrix = np.genfromtxt("Data/OccupancyRoom2.csv", delimiter=",", skip_header=1)
 
-    # Initial variables
-    vent_counter = 0
-    is_override_room1 = False
-    is_override_room2 = False
+    all_objectives = []
+    all_logs = []
 
-    INITIAL_PREVIOUS_PRICE = 6
-    outside_temperature = data["outdoor_temperature"]
+    for rep in range(n_repetitions):
+        vent_counter = 0
+        is_override_room1 = False
+        is_override_room2 = False
 
-    # Simulation
-    for day in range(0, n_experiments):
-        objective_value = 0
+        INITIAL_PREVIOUS_PRICE = 6
+        outside_temperature = data["outdoor_temperature"]
 
-        for hour in range(0, n_hours):
-            print("Hour: ", hour)
-            if hour == 0:
-                previous_price    = INITIAL_PREVIOUS_PRICE
-                temperature_room1 = data["initial_temperature"]
-                temperature_room2 = data["initial_temperature"]
-                humidity          = data["initial_humidity"]
+        objective_value_record = []
 
-            else:
-                previous_price = price_matrix[day][hour-1]
-                temperature_room1 = calculate_room_temperature(P1, occupancy1_matrix[day][hour], temperature_room1, temperature_room2, data, V, outside_temperature[hour-1])
-                temperature_room2 = calculate_room_temperature(P2, occupancy2_matrix[day][hour], temperature_room2, temperature_room1, data, V, outside_temperature[hour-1])
-                humidity = (
-                    humidity + 
-                    data["humidity_occupancy_coeff"] * (occupancy1_matrix[day][hour] + occupancy2_matrix[day][hour]) - 
-                    data["humidity_vent_coeff"] * V
-                )
+        # Simulation
+        for day in range(0, n_experiments):
+            objective_value = 0
 
-
-            # update overrule controlers state
-            is_override_room1 = update_overrule_controler_state(is_override_room1, temperature_room1, data)
-            is_override_room2 = update_overrule_controler_state(is_override_room2, temperature_room2, data)
-
-            #print("Temperatures: ", temperature_room1, temperature_room2)
-            #print("Humidity: ", humidity)
-            # print("Overrule controlers: ", is_override_room1, is_override_room2)
-
-
-            # Update state
-            state = {
-                "T1": temperature_room1,
-                "T2": temperature_room2,
-                "H": humidity,
-                "Occ1": occupancy1_matrix[day][hour],
-                "Occ2": occupancy2_matrix[day][hour],
-                "price_t": price_matrix[day][hour],
-                "price_previous": previous_price,
-                "vent_counter": vent_counter,
-                "low_override_r1": is_override_room1,
-                "low_override_r2": is_override_room2,
-                "current_time": hour
+            day_log = {
+                "hour": [],
+                "V": [],
+                "P1": [],
+                "P2": [],
+                "T1": [],
+                "T2": [],
+                "H": []
             }
 
+            for hour in range(0, n_hours):
+                # print("Hour: ", hour)
+                if hour == 0:
+                    previous_price    = INITIAL_PREVIOUS_PRICE
+                    temperature_room1 = data["initial_temperature"]
+                    temperature_room2 = data["initial_temperature"]
+                    humidity          = data["initial_humidity"]
 
-            # Policy takes a decision based on the state
-            #decision = policy.select_action(state)
-            #print("decision: ", decision)
+                else:
+                    previous_price = price_matrix[day][hour-1]
+                    temperature_room1 = calculate_room_temperature(P1, occupancy1_matrix[day][hour], temperature_room1, temperature_room2, data, V, outside_temperature[hour-1])
+                    temperature_room2 = calculate_room_temperature(P2, occupancy2_matrix[day][hour], temperature_room2, temperature_room1, data, V, outside_temperature[hour-1])
+                    humidity = (
+                        humidity +
+                        data["humidity_occupancy_coeff"] * (occupancy1_matrix[day][hour] + occupancy2_matrix[day][hour]) -
+                        data["humidity_vent_coeff"] * V
+                    )
 
-            # Evaluate policy's decision
-            POWER_MAX = {1 : data["heating_max_power"], 2 : data["heating_max_power"]}
-            decision = Checks.check_and_sanitize_action(policy, state, POWER_MAX)
-            # print(sanitazied_decision)
+                # update overrule controlers state
+                is_override_room1 = update_overrule_controler_state(is_override_room1, temperature_room1, data)
+                is_override_room2 = update_overrule_controler_state(is_override_room2, temperature_room2, data)
 
+                # Update state
+                state = {
+                    "T1": temperature_room1,
+                    "T2": temperature_room2,
+                    "H": humidity,
+                    "Occ1": occupancy1_matrix[day][hour],
+                    "Occ2": occupancy2_matrix[day][hour],
+                    "price_t": price_matrix[day][hour],
+                    "price_previous": previous_price,
+                    "vent_counter": vent_counter,
+                    "low_override_r1": is_override_room1,
+                    "low_override_r2": is_override_room2,
+                    "current_time": hour
+                }
 
-            # Update decision variables
-            V  = 1 if (humidity > data["humidity_threshold"]) or (0 < vent_counter < 3) else decision["VentilationON"] 
-            P1 = decision["HeatPowerRoom1"] if not is_override_room1 else data["heating_max_power"]
-            P2 = decision["HeatPowerRoom2"] if not is_override_room2 else data["heating_max_power"]
+                # Evaluate policy's decision
+                POWER_MAX = {1 : data["heating_max_power"], 2 : data["heating_max_power"]}
+                decision = Checks.check_and_sanitize_action(policy, state, POWER_MAX)
 
+                # Update decision variables
+                V  = 1 if (humidity > data["humidity_threshold"]) or (0 < vent_counter < 3) else decision["VentilationON"]
+                P1 = decision["HeatPowerRoom1"] if not is_override_room1 else data["heating_max_power"]
+                P2 = decision["HeatPowerRoom2"] if not is_override_room2 else data["heating_max_power"]
 
-            # Update consecutive ventilation usage counter
-            if V == 0:
-                vent_counter = 0
-            else:
-                vent_counter += 1
+                # Update consecutive ventilation usage counter
+                if V == 0:
+                    vent_counter = 0
+                else:
+                    vent_counter += 1
 
-            print("HeatPowerRoom1", decision["HeatPowerRoom1"], P1)
-            print("HeatPowerRoom2", decision["HeatPowerRoom2"], P2)
-            print("VentilationON ", decision["VentilationON"], V)
+                # Calculate objective function
+                objective_value += price_matrix[day][hour] * (V * data["ventilation_power"] + P1 + P2)
 
-            # Calculate objective function
-            objective_value += price_matrix[day][hour] * (V * data["ventilation_power"] + P1 + P2) 
-            #print("\n")
+                # Store logs
+                day_log["hour"].append(hour)
+                day_log["V"].append(V)
+                day_log["P1"].append(P1)
+                day_log["P2"].append(P2)
+                day_log["T1"].append(temperature_room1)
+                day_log["T2"].append(temperature_room2)
+                day_log["H"].append(humidity)
 
-        print("Objective: ", objective_value)
+            objective_value_record.append(objective_value)
+            all_logs.append({"rep": rep, "day": day, "log": day_log})
 
+            if plot:
+                temp_thresholds = (
+                    data["temp_min_comfort_threshold"],
+                    data["temp_OK_threshold"]
+                )
+                humidity_threshold = data.get("humidity_threshold", None)
+                _plot_experiment(
+                    rep,
+                    day,
+                    day_log,
+                    price_series=price_matrix[day][:n_hours],
+                    temp_thresholds=temp_thresholds,
+                    humidity_threshold=humidity_threshold
+                )
 
+        all_objectives.append(objective_value_record)
 
+    return {
+        "objectives": all_objectives,
+        "logs": all_logs
+    }
 
+if __name__ == "__main__":
+    results = run_environment(
+        SP_policy_30,
+        n_experiments=1,
+        n_hours=10,
+        n_repetitions=3,
+        plot=True
+    )
 
+    all_objectives = np.array(results["objectives"])
+    mean_objectives = np.mean(all_objectives, axis=0)
+    std_objectives = np.std(all_objectives, axis=0)
 
-
-# run_environment(Policy_Restaurant, n_experiments=1, n_hours=10)
-run_environment(SP_policy_30, n_experiments=100, n_hours=10)
-
-           
-
-
+    # plt.figure(figsize=(10, 5))
+    # plt.errorbar(range(1, len(mean_objectives) + 1), mean_objectives, yerr=std_objectives, fmt='-o', capsize=5)
+    # plt.title('Objective Value Across Experiments')
+    # plt.xlabel('Experimento')
+    # plt.ylabel('Objective Value')
+    # plt.grid(True)
+    # plt.tight_layout()
+    # plt.show()
