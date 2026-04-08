@@ -238,8 +238,37 @@ def solve_sp(state, nodes):
     # ------------------------------------------------------------------
     # CONSTRAINTS
     # ------------------------------------------------------------------
+
+    # HERE AND NOW CONSTRAINTS (tau=0) 
+    
+    # HERE-AND-NOW OVERRULE CONSTRAINTS
+
+    for r in [1, 2]:
+        if low_override_init[r]:
+            model.p0[r].fix(P_max)
+        temp_now = state["T1"] if r == 1 else state["T2"]
+        if temp_now >= T_high:
+            model.p0[r].fix(0)
+
+    if state["H"] > H_high:
+        model.v0.fix(1)
+    
+    # HERE-AND-NOW VENTILATION CONSTRAINTS
+
+    # startup detection at tau=0
+    model.c.add(model.s0 >= model.v0 - v_prev)
+    model.c.add(model.s0 <= model.v0)
+    model.c.add(model.s0 <= 1 - v_prev)
+
+    # if minimum uptime is not yet satisfied by past decisions, force ventilation ON
+    if remaining_forced >= 1:
+        model.v0.fix(1)
+    for n in nodes_future:
+        if n["tau"] == 1 and remaining_forced >= 2:
+            model.v[n["id"]].fix(1)
     model.c = ConstraintList()
 
+    # FUTURE NODES CONSTRAINTS
     for n in nodes_future:
         nid   = n["id"]
         tau   = n["tau"]
@@ -311,21 +340,7 @@ def solve_sp(state, nodes):
             else:
                 model.c.add(model.v[nid] >= model.s[ancestor["id"]]) # if startup, then s = 1  and forces v to be 1
 
-    # ------------------------------------------------------------------
-    # HERE-AND-NOW VENTILATION CONSTRAINTS (tau=0)
-    # ------------------------------------------------------------------
-    # startup detection at tau=0
-    model.c.add(model.s0 >= model.v0 - v_prev)
-    model.c.add(model.s0 <= model.v0)
-    model.c.add(model.s0 <= 1 - v_prev)
-
-    # if minimum uptime is not yet satisfied by past decisions, force ventilation ON
-    if remaining_forced >= 1:
-        model.v0.fix(1)
-    for n in nodes_future:
-        if n["tau"] == 1 and remaining_forced >= 2:
-            model.v[n["id"]].fix(1)
-
+    
     # ------------------------------------------------------------------
     # SOLVE
     # ------------------------------------------------------------------
