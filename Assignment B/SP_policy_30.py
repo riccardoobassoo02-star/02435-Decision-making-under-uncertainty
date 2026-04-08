@@ -8,6 +8,7 @@ Created on Mon Nov 17 11:14:31 2025
 from pyomo.environ import *
 from sklearn.cluster import KMeans
 import numpy as np
+from trio import current_time
 from Utils.PriceProcessRestaurant import price_model
 from Utils.OccupancyProcessRestaurant import next_occupancy_levels
 from Utils.SystemCharacteristics import get_fixed_data
@@ -31,9 +32,10 @@ eta_occ     = data['humidity_occupancy_coeff']
 eta_vent    = data['humidity_vent_coeff']
 min_up_time = data['vent_min_up_time']
 
-M = 1000   # big-M constant for linearization
+M = 1000  # big-M constant
+
 # Note: initial conditions (T0, H0) are not extracted here because
-# they are provided at runtime by the environment via the state dictionary
+# they are provided at runtime by the environment via the state dictionary 
 
 # The state will be provided by the environment as the following dictionary
 # state = {
@@ -54,7 +56,8 @@ M = 1000   # big-M constant for linearization
 # ------------------------------------------------------------------
 # SCENARIO TREE BUILDER (iterative Branch & Cluster)
 # ------------------------------------------------------------------
-def build_tree(state, H, B, N_samples=100):
+
+def build_tree(state, H, B, N_samples = 100):
     """
     Builds scenario tree using iterative Branch & Cluster.
 
@@ -117,11 +120,11 @@ def build_tree(state, H, B, N_samples=100):
                 "id":         next_id,
                 "tau":        parent["tau"] + 1,
                 "parent_id":  parent["id"],
-                "price":      centroids[b, 0],          # centroid price
-                "price_prev": parent["price"],           # parent price becomes prev
-                "occ1":       centroids[b, 1],          # centroid occ1
-                "occ2":       centroids[b, 2],          # centroid occ2
-                "prob":       parent["prob"] * cluster_prob   # chain rule
+                "price":      centroids[b, 0],                 # centroid price
+                "price_prev": parent["price"],                 # parent price becomes prev
+                "occ1":       centroids[b, 1],                 # centroid occ1
+                "occ2":       centroids[b, 2],                 # centroid occ2
+                "prob":       parent["prob"] * cluster_prob    # chain rule
             }
 
             nodes.append(child)
@@ -130,10 +133,10 @@ def build_tree(state, H, B, N_samples=100):
 
     return nodes
 
-
 # ------------------------------------------------------------------
 # SP MILP SOLVER (correct model from Solution to Assignment Part A)
-# ------------------------------------------------------------------
+# ------------------------------------------------------------------ 
+
 def solve_sp(state, nodes):
     """
     Builds and solves the multi-stage SP MILP on the scenario tree.
@@ -350,7 +353,7 @@ def solve_sp(state, nodes):
 # ------------------------------------------------------------------
 def select_action(state):
     try:
-        H, B = 3, 2
+        H, B = min(3, 9-state["current_time"]), 2
         nodes = build_tree(state, H=H, B=B, N_samples=100)
         p1, p2, v = solve_sp(state, nodes)
         HereAndNowActions = {
