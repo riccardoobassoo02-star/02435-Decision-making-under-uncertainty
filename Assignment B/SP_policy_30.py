@@ -238,7 +238,7 @@ def solve_sp(state, nodes):
     # ------------------------------------------------------------------
     # CONSTRAINTS
     # ------------------------------------------------------------------
-
+    model.c = ConstraintList()
     # HERE AND NOW CONSTRAINTS (tau=0) 
 
     # HERE-AND-NOW OVERRULE CONSTRAINTS
@@ -264,7 +264,7 @@ def solve_sp(state, nodes):
     for n in nodes_future:
         if n["tau"] == 1 and remaining_forced >= 2:
             model.v[n["id"]].fix(1)
-    model.c = ConstraintList()
+
 
     # FUTURE NODES CONSTRAINTS
     for n in nodes_future:
@@ -305,10 +305,10 @@ def solve_sp(state, nodes):
 
             # HIGH-TEMP OVERRULE CONTROLLER (eq. 5-7)
             # detect temp >= T_high (eq. 5-6)
-            model.c.add(model.temp[r, nid] >= T_high - M * (1 - model.delta_high[r, nid]))
-            model.c.add(model.temp[r, nid] <= T_high + M * model.delta_high[r, nid])
+            model.c.add(model.temp[r, nid] >= T_high - M * (1 - model.y_high[r, nid]))
+            model.c.add(model.temp[r, nid] <= T_high + M * model.y_high[r, nid])
             # force power to zero (eq. 7)
-            model.c.add(model.p[r, nid] <= P_max * (1 - model.delta_high[r, nid]))
+            model.c.add(model.p[r, nid] <= P_max * (1 - model.y_high[r, nid]))
 
         # HUMIDITY DYNAMICS (solution eq. 3)
         model.c.add(
