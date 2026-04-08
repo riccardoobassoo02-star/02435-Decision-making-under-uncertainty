@@ -240,21 +240,19 @@ def solve_sp(state, nodes):
     # ------------------------------------------------------------------
 
     # HERE AND NOW CONSTRAINTS (tau=0) 
-    
-    # HERE-AND-NOW OVERRULE CONSTRAINTS
 
+    # HERE-AND-NOW OVERRULE CONSTRAINTS
     for r in [1, 2]:
         if low_override_init[r]:
-            model.p0[r].fix(P_max)
+            model.p0[r].fix(P_max) # fix the heating power to max if the low-temp overrule controller is already active for that room at the current time step, to satisfy the low-temp overrule constraint (eq. 14)
         temp_now = state["T1"] if r == 1 else state["T2"]
         if temp_now >= T_high:
-            model.p0[r].fix(0)
+            model.p0[r].fix(0) # fix the heating power to zero if the temperature is already above the high threshold at the current time step, to satisfy the high-temp overrule constraint (eq. 7)
 
     if state["H"] > H_high:
-        model.v0.fix(1)
+        model.v0.fix(1) # fix the ventilation to ON if the humidity is already above the threshold at the current time step, to satisfy the humidity overrule constraint (eq. 21)
     
     # HERE-AND-NOW VENTILATION CONSTRAINTS
-
     # startup detection at tau=0
     model.c.add(model.s0 >= model.v0 - v_prev)
     model.c.add(model.s0 <= model.v0)
