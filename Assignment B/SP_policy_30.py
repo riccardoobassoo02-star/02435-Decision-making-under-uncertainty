@@ -360,20 +360,20 @@ def solve_sp(state, nodes):
 # ENTRY POINT (called by the environment)
 # ------------------------------------------------------------------
 def select_action(state):
-    try:
-        H, B = min(3, 9-state["current_time"]), 2
-        nodes = build_tree(state, H=H, B=B, N_samples=100)
-        p1, p2, v = solve_sp(state, nodes)
-        HereAndNowActions = {
-            "HeatPowerRoom1": p1,
-            "HeatPowerRoom2": p2,
-            "VentilationON":  v
-        }
-    except Exception as e:
-        print(f"[ERROR] SP policy failed: {e}")
-        HereAndNowActions = {
-            "HeatPowerRoom1": 0,
-            "HeatPowerRoom2": 0,
-            "VentilationON":  0
-        }
+    # try:
+    H, B = min(3, 9-state["current_time"]), 2
+    nodes = build_tree(state, H=H, B=B, N_samples=100)
+    p1, p2, v = solve_sp(state, nodes)
+    HereAndNowActions = {
+        "HeatPowerRoom1": p1,
+        "HeatPowerRoom2": p2,
+        "VentilationON":  v
+    }
+    # except Exception as e:
+    #     print(f"[ERROR] SP policy failed: {e}")
+    #     HereAndNowActions = {
+    #         "HeatPowerRoom1": 0,
+    #         "HeatPowerRoom2": 0,
+    #         "VentilationON":  0
+    #     }
     return HereAndNowActions

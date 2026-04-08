@@ -1,4 +1,4 @@
-from Utils import SystemCharacteristics, Checks
+from Utils import v2_SystemCharacteristics, Checks
 import SP_policy_30
 
 import numpy as np
@@ -64,15 +64,15 @@ def _plot_experiment(rep, day, day_log, price_series=None, temp_thresholds=None,
 
     # Room 2: Power and temperature
     ax2 = axs[1]
-    ax2.plot(hours, P2, '-o', color='orange', label='Heating Power R2')
-    ax2.set_ylabel('Power R2 [kW]', color='orange')
-    ax2.tick_params(axis='y', labelcolor='orange')
+    ax2.plot(hours, P2, '-o', color='red', label='Heating Power R2')
+    ax2.set_ylabel('Power R2 [kW]', color='red')
+    ax2.tick_params(axis='y', labelcolor='red')
     ax2.grid(True)
 
     ax2b = ax2.twinx()
-    ax2b.plot(hours, T2, '-s', color='olive', label='Temp R2')
-    ax2b.set_ylabel('Temp R2 [°C]', color='olive')
-    ax2b.tick_params(axis='y', labelcolor='olive')
+    ax2b.plot(hours, T2, '-s', color='green', label='Temp R2')
+    ax2b.set_ylabel('Temp R2 [°C]', color='green')
+    ax2b.tick_params(axis='y', labelcolor='green')
     if temp_thresholds is not None:
         min_thr, ok_thr = temp_thresholds
         ax2b.axhline(min_thr, color='cyan', linestyle='--', label='Min comfort temp')
@@ -85,24 +85,24 @@ def _plot_experiment(rep, day, day_log, price_series=None, temp_thresholds=None,
 
     # Lower plot: humidity, ventilation and electricity price
     ax3 = axs[2]
-    ax3.plot(hours, H, '-o', color='purple', label='Humidity')
-    ax3.set_ylabel('Humidity [%]', color='purple')
-    ax3.tick_params(axis='y', labelcolor='purple')
+    ax3.plot(hours, H, '-o', color='green', label='Humidity')
+    ax3.set_ylabel('Humidity [%]', color='green')
+    ax3.tick_params(axis='y', labelcolor='green')
     ax3.grid(True)
     if humidity_threshold is not None:
         ax3.axhline(humidity_threshold, color='gray', linestyle='--', label='Humidity Threshold')
 
     if price_series is not None:
         ax3b = ax3.twinx()
-        ax3b.plot(hours, price_series, '-o', color='brown', label='Electricity Price')
-        ax3b.set_ylabel('Price [€/kWh]', color='brown')
-        ax3b.tick_params(axis='y', labelcolor='brown')
+        ax3b.plot(hours, price_series, '-o', color='blue', label='Electricity Price')
+        ax3b.set_ylabel('Price [€/kWh]', color='blue')
+        ax3b.tick_params(axis='y', labelcolor='blue')
 
         # Add ventilation to the same twin axis or separate
         ax3c = ax3.twinx()
-        ax3c.plot(hours, V, '-s', color='blue', label='Ventilation')
-        ax3c.set_ylabel('Ventilation', color='blue')
-        ax3c.tick_params(axis='y', labelcolor='blue')
+        ax3c.plot(hours, V, '-s', color='red', label='Ventilation')
+        ax3c.set_ylabel('Ventilation', color='red')
+        ax3c.tick_params(axis='y', labelcolor='red')
         ax3c.set_ylim(-0.1, 1.1)
         # Position ax3c to the right of ax3b
         ax3c.spines["right"].set_position(("axes", 1.1))
@@ -122,12 +122,23 @@ def _plot_experiment(rep, day, day_log, price_series=None, temp_thresholds=None,
     plt.show()
 
 
-def run_environment(policy, n_experiments=1, n_hours=10, n_repetitions=1, plot=False):  
+
+def run_environment(policy, n_experiments=1, n_repetitions=1, plot=False):  
     # Import data
-    data = SystemCharacteristics.get_fixed_data()
-    price_matrix      = np.genfromtxt("Data/PriceData.csv",      delimiter=",", skip_header=1)
+    data = v2_SystemCharacteristics.get_fixed_data()
     occupancy1_matrix = np.genfromtxt("Data/OccupancyRoom1.csv", delimiter=",", skip_header=1)
     occupancy2_matrix = np.genfromtxt("Data/OccupancyRoom2.csv", delimiter=",", skip_header=1)
+    price_data        = np.genfromtxt("Data/v2_PriceData.csv",   delimiter=",", skip_header=1)
+
+    # Vector with initial previous value of electricity for each day (t-1)
+    initial_previous_prices = price_data[:, 0]
+
+    # Matrix with rest of price data
+    price_matrix = price_data[:, 1:]
+
+    NUM_TIMESLOTS     = data["num_timeslots"]
+    HEATING_MAX_POWER = data["heating_max_power"]
+    VENT_MIN_UP_TIME  = data["vent_min_up_time"]
 
     all_objectives = []
     all_logs = []
@@ -137,13 +148,11 @@ def run_environment(policy, n_experiments=1, n_hours=10, n_repetitions=1, plot=F
         is_override_room1 = False
         is_override_room2 = False
 
-        INITIAL_PREVIOUS_PRICE = 6
-        outside_temperature = data["outdoor_temperature"]
-
+        outside_temperature_vector = data["outdoor_temperature"]
         objective_value_record = []
 
         # Simulation
-        for day in range(0, n_experiments):
+        for day in range(0, n_experiments): 
             objective_value = 0
 
             day_log = {
@@ -156,18 +165,18 @@ def run_environment(policy, n_experiments=1, n_hours=10, n_repetitions=1, plot=F
                 "H": []
             }
 
-            for hour in range(0, n_hours):
+            for hour in range(0, NUM_TIMESLOTS):
                 # print("Hour: ", hour)
                 if hour == 0:
-                    previous_price    = INITIAL_PREVIOUS_PRICE
-                    temperature_room1 = data["initial_temperature"]
-                    temperature_room2 = data["initial_temperature"]
-                    humidity          = data["initial_humidity"]
+                    previous_price    = initial_previous_prices[day]
+                    temperature_room1 = data["T1"]
+                    temperature_room2 = data["T2"]
+                    humidity          = data["H"]
 
                 else:
                     previous_price = price_matrix[day][hour-1]
-                    temperature_room1 = calculate_room_temperature(P1, occupancy1_matrix[day][hour], temperature_room1, temperature_room2, data, V, outside_temperature[hour-1])
-                    temperature_room2 = calculate_room_temperature(P2, occupancy2_matrix[day][hour], temperature_room2, temperature_room1, data, V, outside_temperature[hour-1])
+                    temperature_room1 = calculate_room_temperature(P1, occupancy1_matrix[day][hour], temperature_room1, temperature_room2, data, V, outside_temperature_vector[hour-1])
+                    temperature_room2 = calculate_room_temperature(P2, occupancy2_matrix[day][hour], temperature_room2, temperature_room1, data, V, outside_temperature_vector[hour-1])
                     humidity = (
                         humidity +
                         data["humidity_occupancy_coeff"] * (occupancy1_matrix[day][hour] + occupancy2_matrix[day][hour]) -
@@ -194,12 +203,12 @@ def run_environment(policy, n_experiments=1, n_hours=10, n_repetitions=1, plot=F
                 }
 
                 # Evaluate policy's decision
-                POWER_MAX = {1 : data["heating_max_power"], 2 : data["heating_max_power"]}
+                POWER_MAX = {1 : HEATING_MAX_POWER, 2 : HEATING_MAX_POWER}
                 decision = Checks.check_and_sanitize_action(policy, state, POWER_MAX)
 
                 # Update decision variables
-                V  = 1 if (humidity > data["humidity_threshold"]) or (0 < vent_counter < 3) else decision["VentilationON"]
-                P1 = decision["HeatPowerRoom1"] if not is_override_room1 else data["heating_max_power"]
+                V  = 1 if (humidity > data["humidity_threshold"]) or (0 < vent_counter < VENT_MIN_UP_TIME) else decision["VentilationON"]
+                P1 = decision["HeatPowerRoom1"] if not is_override_room1 else HEATING_MAX_POWER
                 P2 = decision["HeatPowerRoom2"] if not is_override_room2 else data["heating_max_power"]
 
                 # Update consecutive ventilation usage counter
@@ -233,7 +242,7 @@ def run_environment(policy, n_experiments=1, n_hours=10, n_repetitions=1, plot=F
                     rep,
                     day,
                     day_log,
-                    price_series=price_matrix[day][:n_hours],
+                    price_series=price_matrix[day][:NUM_TIMESLOTS],
                     temp_thresholds=temp_thresholds,
                     humidity_threshold=humidity_threshold
                 )
@@ -245,18 +254,18 @@ def run_environment(policy, n_experiments=1, n_hours=10, n_repetitions=1, plot=F
         "logs": all_logs
     }
 
+
 if __name__ == "__main__":
     results = run_environment(
         SP_policy_30,
-        n_experiments=1,
-        n_hours=10,
-        n_repetitions=3,
+        n_experiments=2,
+        n_repetitions=2,
         plot=True
     )
 
-    all_objectives = np.array(results["objectives"])
+    all_objectives  = np.array(results["objectives"])
     mean_objectives = np.mean(all_objectives, axis=0)
-    std_objectives = np.std(all_objectives, axis=0)
+    std_objectives  = np.std(all_objectives, axis=0)
 
     # plt.figure(figsize=(10, 5))
     # plt.errorbar(range(1, len(mean_objectives) + 1), mean_objectives, yerr=std_objectives, fmt='-o', capsize=5)
