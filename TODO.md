@@ -1,0 +1,5 @@
+- [ ] change the systemcharacteristics import to v2
+- [ ] review task 3 code
+- [ ] review plots task 6
+- [ ] start to write report task 3 and 6 
+- [ ] start task 4
