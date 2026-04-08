@@ -8,7 +8,6 @@ Created on Mon Nov 17 11:14:31 2025
 from pyomo.environ import *
 from sklearn.cluster import KMeans
 import numpy as np
-from trio import current_time
 from Utils.PriceProcessRestaurant import price_model
 from Utils.OccupancyProcessRestaurant import next_occupancy_levels
 from Utils.SystemCharacteristics import get_fixed_data
@@ -34,8 +33,7 @@ min_up_time = data['vent_min_up_time']
 
 M = 1000  # big-M constant
 
-# Note: initial conditions (T0, H0) are not extracted here because
-# they are provided at runtime by the environment via the state dictionary 
+# Note: initial conditions (T0, H0) are not extracted here because they are provided at runtime by the environment via the state dictionary 
 
 # The state will be provided by the environment as the following dictionary
 # state = {
@@ -71,7 +69,7 @@ def build_tree(state, H, B, N_samples = 100):
         list of node dictionaries representing the full scenario tree
     """
 
-    # root node (tau=0) — current state, no uncertainty
+    # root node (tau=0) - current state (no uncertainty, probability=1)
     root = {
         "id":         0,
         "tau":        0,
@@ -83,107 +81,105 @@ def build_tree(state, H, B, N_samples = 100):
         "prob":       1.0
     }
 
-    nodes = [root]
-    queue = [root]   # BFS queue
+    nodes = [root]   # list of dictionaries, each representing a node in the scenario tree with its features and probability
+    queue = [root]   # BFS queue (breadth-first search)
     next_id = 1
 
     while queue:
-        parent = queue.pop(0)
+        parent = queue.pop(0) # takes the first element of the queue list (parent node) and removes it (so the queue is updated to contain only the children)
 
-        if parent["tau"] >= H:
+        if parent["tau"] >= H: # when H becomes 0 (hour 10), we don't create any children
             continue   # leaf node — no children
 
-        # --- BRANCH: generate N_samples random children from this parent ---
+        # BRANCHING: generate N_samples random children from this parent
+        # define the features of the child nodes: price, occ1, occ2
         sample_prices = []
         sample_occ1s  = []
         sample_occ2s  = []
 
         for _ in range(N_samples):
-            p      = price_model(parent["price"], parent["price_prev"])
+            p = price_model(parent["price"], parent["price_prev"])
             o1, o2 = next_occupancy_levels(parent["occ1"], parent["occ2"])
             sample_prices.append(p)
             sample_occ1s.append(o1)
             sample_occ2s.append(o2)
 
-        # --- CLUSTER: reduce N_samples to B representative centroids ---
-        # feature matrix: each row is one sample [price, occ1, occ2]
-        X         = np.column_stack([sample_prices, sample_occ1s, sample_occ2s])
+        # CLUSTERING: reduce N_samples to B representative centroids
+        X         = np.column_stack([sample_prices, sample_occ1s, sample_occ2s]) # feature matrix with all the N samples
         km        = KMeans(n_clusters=B, random_state=0, n_init=10).fit(X)
         labels    = km.labels_
-        centroids = km.cluster_centers_   # shape (B, 3)
+        centroids = km.cluster_centers_   # reduced matrix of shape (B, 3)
 
-        # --- CREATE B child nodes from centroids ---
+        # CREATING B child nodes from centroids
         for b in range(B):
-            cluster_prob = np.sum(labels == b) / N_samples   # conditional probability
+            cluster_prob = np.sum(labels == b) / N_samples     # conditional probability
 
             child = {
-                "id":         next_id,
-                "tau":        parent["tau"] + 1,
-                "parent_id":  parent["id"],
+                "id":         next_id,                         # unique ID for the child node
+                "tau":        parent["tau"] + 1,               # deep level in the tree
+                "parent_id":  parent["id"],                    # ID of the parent node
                 "price":      centroids[b, 0],                 # centroid price
                 "price_prev": parent["price"],                 # parent price becomes prev
                 "occ1":       centroids[b, 1],                 # centroid occ1
                 "occ2":       centroids[b, 2],                 # centroid occ2
-                "prob":       parent["prob"] * cluster_prob    # chain rule
+                "prob":       parent["prob"] * cluster_prob    # probability of the child according to the chain rule
             }
 
-            nodes.append(child)
-            queue.append(child)
+            nodes.append(child) # update the full list of nodes with the new child
+            queue.append(child) # updated the queue list with the new child, which will become the next parent for the next iteration of the while loop
             next_id += 1
 
     return nodes
 
 # ------------------------------------------------------------------
-# SP MILP SOLVER (correct model from Solution to Assignment Part A)
+# SP MILP SOLVER (using the mathematical model of the solution to assignment part A)
 # ------------------------------------------------------------------ 
 
 def solve_sp(state, nodes):
     """
     Builds and solves the multi-stage SP MILP on the scenario tree.
-    Uses the correct model from the Solution to Assignment Part A.
     Returns the here-and-now decisions (p1, p2, v) for tau=0.
     """
-
     model = ConcreteModel()
 
     # ------------------------------------------------------------------
     # SETUP
     # ------------------------------------------------------------------
-    node_by_id   = {n["id"]: n for n in nodes}
-    nodes_future = [n for n in nodes if n["tau"] >= 1]
+    node_by_id   = {n["id"]: n for n in nodes}                  # dictionary for easy node lookup
+    nodes_future = [n for n in nodes if n["tau"] >= 1]          # only future nodes (tau>=1) lookup
 
     t_now = state["current_time"]
 
-    # low override status at tau=0 (known from environment)
-    low_override_init = {1: state["low_override_r1"],
-                         2: state["low_override_r2"]}
+    # low temperature overrule controller status at tau = 0 (known from environment)
+    low_override_init = {1: state["low_override_r1"],           # room 1
+                         2: state["low_override_r2"]}           # room 2
 
     # ventilation inertia carried over from past decisions
-    vent_counter     = state["vent_counter"]
-    remaining_forced = max(0, min_up_time - vent_counter) if vent_counter > 0 else 0
-    v_prev           = 1 if vent_counter > 0 else 0
+    vent_counter     = state["vent_counter"]                    # how many consecutive hours the ventilation has been ON until now
+    remaining_forced = max(0, min_up_time - vent_counter) if vent_counter > 0 else 0 # how many more hours the ventilation must be forced ON to satisfy the minimum uptime constraint )
+    v_prev           = 1 if vent_counter > 0 else 0             # 1 if the ventilation was ON in the previous hour
 
     # ------------------------------------------------------------------
     # SETS
     # ------------------------------------------------------------------
     model.R     = RangeSet(1, 2)
-    model.NODES = Set(initialize=[n["id"] for n in nodes_future])
+    model.NODES = Set(initialize=[n["id"] for n in nodes_future]) # list of node IDs for future nodes
 
     # ------------------------------------------------------------------
     # VARIABLES
     # ------------------------------------------------------------------
 
-    # here-and-now (tau=0) — single decision shared across all scenarios
-    model.p0 = Var(model.R, within=NonNegativeReals, bounds=(0, P_max))
-    model.v0 = Var(within=Binary)
-    model.s0 = Var(within=Binary)   # ventilation startup indicator at tau=0
+    # here-and-now (tau=0) 
+    model.p0 = Var(model.R, within=NonNegativeReals, bounds=(0, P_max)) # heating power per room
+    model.v0 = Var(within=Binary) # ventilation ON/OFF
+    model.s0 = Var(within=Binary)   # ventilation startup indicator at tau = 0 ( 1 if the ventilation is turned ON at tau=0, 0 otherwise)
 
-    # future nodes (tau >= 1) — one variable per node
-    model.p          = Var(model.R, model.NODES, within=NonNegativeReals, bounds=(0, P_max))
-    model.v          = Var(model.NODES, within=Binary)
+    # future nodes (tau >= 1)
+    model.p          = Var(model.R, model.NODES, within=NonNegativeReals, bounds=(0, P_max)) # heating power per room
+    model.v          = Var(model.NODES, within=Binary)   # ventilation ON/OFF
     model.s          = Var(model.NODES, within=Binary)   # ventilation startup indicator
-    model.temp       = Var(model.R, model.NODES, within=Reals)
-    model.hum        = Var(model.NODES, within=NonNegativeReals)
+    model.temp       = Var(model.R, model.NODES, within=Reals) # temperature per room
+    model.hum        = Var(model.NODES, within=NonNegativeReals) # humidity
 
     # low-temp overrule: 3 separate binary variables (solution model eq. 8-16)
     model.y_low = Var(model.R, model.NODES, within=Binary)   # 1 if temp < T_low
@@ -191,41 +187,40 @@ def solve_sp(state, nodes):
     model.u     = Var(model.R, model.NODES, within=Binary)   # 1 if overrule active
 
     # high-temp overrule and humidity overrule
-    model.delta_high = Var(model.R, model.NODES, within=Binary)
-    model.delta_hum  = Var(model.NODES, within=Binary)
+    model.y_high = Var(model.R, model.NODES, within=Binary)  # 1 if the temperature of the room exceeds the high threshold
 
     # ------------------------------------------------------------------
     # HELPER FUNCTIONS — return parent value (variable or known parameter)
     # ------------------------------------------------------------------
-    def v_par(node):
+    def v_par(node): # ventilation of the parent
         return model.v0 if node["tau"] == 1 else model.v[node["parent_id"]]
 
-    def p_par(r, node):
+    def p_par(r, node): # heating of the power of room r
         return model.p0[r] if node["tau"] == 1 else model.p[r, node["parent_id"]]
 
-    def temp_par(r, node):
+    def temp_par(r, node): # temperature of room r at the parent node
         if node["tau"] == 1:
             return state["T1"] if r == 1 else state["T2"]
         return model.temp[r, node["parent_id"]]
 
-    def temp_other_par(r, node):
+    def temp_other_par(r, node): # temperature of the other room at the parent node
         r_other = 3 - r
         if node["tau"] == 1:
             return state["T1"] if r_other == 1 else state["T2"]
         return model.temp[r_other, node["parent_id"]]
 
-    def hum_par(node):
+    def hum_par(node): # humidity at the parent node
         return state["H"] if node["tau"] == 1 else model.hum[node["parent_id"]]
 
-    def occ_par(r, node):
+    def occ_par(r, node): # occupancy of room r at the parent node
         if node["tau"] == 1:
             return state["Occ1"] if r == 1 else state["Occ2"]
         parent = node_by_id[node["parent_id"]]
         return parent["occ1"] if r == 1 else parent["occ2"]
 
-    def u_par(r, node):
+    def u_par(r, node): # status of low-temp overrule controller of room r at the parent node
         if node["tau"] == 1:
-            return int(low_override_init[r])   # ← int(), non bool
+            return int(low_override_init[r])   # int converts boolean (true or false)to 0/1 (in the environment is defined as true/false)
         return model.u[r, node["parent_id"]]
 
     # ------------------------------------------------------------------
@@ -248,23 +243,23 @@ def solve_sp(state, nodes):
     for n in nodes_future:
         nid   = n["id"]
         tau   = n["tau"]
-        t_abs = t_now + tau - 1
-        t_out = T_out[min(t_abs, len(T_out) - 1)]
+        t_parent = t_now + tau - 1 # hour of the parent node
+        t_out = T_out[min(t_parent, len(T_out) - 1)] # external temperature
 
         for r in [1, 2]:
 
-            # C1 — temperature dynamics (solution eq. 2)
+            # TEMPERATURE DYNAMICS (eq. 2)
             model.c.add(
                 model.temp[r, nid] ==
-                    temp_par(r, n)
-                    + zeta_exch * (temp_other_par(r, n) - temp_par(r, n))
-                    - zeta_loss * (temp_par(r, n) - t_out)
-                    + zeta_conv * p_par(r, n)
-                    - zeta_cool * v_par(n)
-                    + zeta_occ  * occ_par(r, n)
+                    temp_par(r, n) # temperature value in the present node (parent)
+                    + zeta_exch * (temp_other_par(r, n) - temp_par(r, n)) # heat exchange with the other room
+                    - zeta_loss * (temp_par(r, n) - t_out) # thermal loss to the outside
+                    + zeta_conv * p_par(r, n) # heating power contribution (of the previous node/hour)
+                    - zeta_cool * v_par(n) # cooling effect of the ventilation
+                    + zeta_occ  * occ_par(r, n) # heating effect of the occupancy (more people generate more heat)
             )
 
-            # LOW-TEMP OVERRULE — solution model eq. 8-16
+            # LOW-TEMP OVERRULE CONTROLLER (eq. 8-16)
             # detect temp < T_low (eq. 8-9)
             model.c.add(model.temp[r, nid] <= T_low + M * (1 - model.y_low[r, nid]))
             model.c.add(model.temp[r, nid] >= T_low - M * model.y_low[r, nid])
@@ -281,50 +276,50 @@ def solve_sp(state, nodes):
             model.c.add(model.u[r, nid] >= u_par(r, n) - model.y_ok[r, nid])
             model.c.add(model.u[r, nid] <= 1 - model.y_ok[r, nid])
 
-            # HIGH-TEMP OVERRULE — solution model eq. 5-7
+            # HIGH-TEMP OVERRULE CONTROLLER (eq. 5-7)
             # detect temp >= T_high (eq. 5-6)
             model.c.add(model.temp[r, nid] >= T_high - M * (1 - model.delta_high[r, nid]))
             model.c.add(model.temp[r, nid] <= T_high + M * model.delta_high[r, nid])
             # force power to zero (eq. 7)
             model.c.add(model.p[r, nid] <= P_max * (1 - model.delta_high[r, nid]))
 
-        # C2 — humidity dynamics (solution eq. 3)
+        # HUMIDITY DYNAMICS (solution eq. 3)
         model.c.add(
             model.hum[nid] ==
-                hum_par(n)
-                + eta_occ * (occ_par(1, n) + occ_par(2, n))
-                - eta_vent * v_par(n)
+                hum_par(n) # humidity value in the present node (parent)
+                + eta_occ * (occ_par(1, n) + occ_par(2, n)) # humidity increase due to occupancy
+                - eta_vent * v_par(n) # humidity decrease due to ventilation
         )
 
-        # HUMIDITY OVERRULE — solution eq. 21
-        model.c.add(M * model.delta_hum[nid] >= model.hum[nid] - H_high)
-        model.c.add(M * (1 - model.delta_hum[nid]) >= H_high - model.hum[nid])
-        model.c.add(model.v[nid] >= model.delta_hum[nid])
+        # HUMIDITY OVERRULE CONTROLLER(eq. 21)
+        model.c.add(model.hum[nid] <= H_high + M * model.v[nid])
 
-        # VENTILATION INERTIA — solution eq. 17-20
+        # VENTILATION INERTIA (eq. 17-20)
         # startup detection at this node
         model.c.add(model.s[nid] >= model.v[nid] - v_par(n))
         model.c.add(model.s[nid] <= model.v[nid])
         model.c.add(model.s[nid] <= 1 - v_par(n))
         # minimum uptime: walk up ancestors within min_up_time-1 steps
-        ancestor = n
+        ancestor = n # starting point is the current node
         for depth in range(1, min_up_time):
-            if ancestor["parent_id"] is None:
+            if ancestor["parent_id"] is None: # if the current node hasn't any parent, that means it is the root node. it doesn't have any ancestor
                 break
             ancestor = node_by_id[ancestor["parent_id"]]
-            if ancestor["tau"] == 0:
+            if ancestor["tau"] == 0: # root node is reached, use the here-and-now variable v0 as ancestor value
                 model.c.add(model.v[nid] >= model.s0)
                 break
             else:
-                model.c.add(model.v[nid] >= model.s[ancestor["id"]])
+                model.c.add(model.v[nid] >= model.s[ancestor["id"]]) # if startup, then s = 1  and forces v to be 1
 
     # ------------------------------------------------------------------
     # HERE-AND-NOW VENTILATION CONSTRAINTS (tau=0)
     # ------------------------------------------------------------------
+    # startup detection at tau=0
     model.c.add(model.s0 >= model.v0 - v_prev)
     model.c.add(model.s0 <= model.v0)
     model.c.add(model.s0 <= 1 - v_prev)
 
+    # if minimum uptime is not yet satisfied by past decisions, force ventilation ON
     if remaining_forced >= 1:
         model.v0.fix(1)
     for n in nodes_future:
@@ -341,9 +336,9 @@ def solve_sp(state, nodes):
         print("[WARNING] SP did not solve to optimality — returning zeros")
         return 0.0, 0.0, 0
 
-    p1 = value(model.p0[1])
-    p2 = value(model.p0[2])
-    v  = int(value(model.v0) > 0.5)
+    p1 = value(model.p0[1])           # heating power of room 1 at tau=0
+    p2 = value(model.p0[2])           # heating power of room 2 at tau=0
+    v  = int(value(model.v0) > 0.5)   # ventilation ON/OFF at tau=0 (binary variable, thresholded at 0.5 for the solver tollerance)
 
     return p1, p2, v
 
