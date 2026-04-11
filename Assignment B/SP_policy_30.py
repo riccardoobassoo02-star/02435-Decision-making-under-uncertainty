@@ -244,9 +244,9 @@ def solve_sp(state, nodes): # 2 dictionaries as inputs
 
     # HERE-AND-NOW OVERRULE CONSTRAINTS
     for r in [1, 2]:
+        temp_now = state["T1"] if r == 1 else state["T2"]
         if low_override_init[r] and temp_now < T_ok:
             model.p0[r].fix(P_max) # fix the heating power to max if the low-temp overrule controller is already active for that room at the current time step, to satisfy the low-temp overrule constraint (eq. 14)
-        temp_now = state["T1"] if r == 1 else state["T2"]
         if temp_now >= T_high:
             model.p0[r].fix(0) # fix the heating power to zero if the temperature is already above the high threshold at the current time step, to satisfy the high-temp overrule constraint (eq. 7)
 

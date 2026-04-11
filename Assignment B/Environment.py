@@ -6,7 +6,6 @@ import matplotlib.pyplot as plt
 import warnings
 warnings.filterwarnings("ignore")
 
-
 def update_overrule_controler_state(overrule_state, temperature, data):
     if (overrule_state == False) and (temperature < data["temp_min_comfort_threshold"]):
         overrule_state = True
@@ -144,16 +143,15 @@ def run_environment(policy, n_experiments=1, n_repetitions=1, plot=False):
     all_logs = []
 
     for rep in range(n_repetitions):
-        vent_counter = 0
-        is_override_room1 = False
-        is_override_room2 = False
-
         outside_temperature_vector = data["outdoor_temperature"]
         objective_value_record = []
 
         # Simulation
         for day in range(0, n_experiments): 
-            objective_value = 0
+            vent_counter = 0           # consectutive ventilation tracker has to be reset at the beggining of each day
+            is_override_room1 = False  # overrule controllers state also has to be reset at the beggining of each day
+            is_override_room2 = False
+            objective_value = 0        # objective value has to be reset at the beggining of each day
 
             day_log = {
                 "hour": [],
@@ -166,7 +164,7 @@ def run_environment(policy, n_experiments=1, n_repetitions=1, plot=False):
             }
 
             for hour in range(0, NUM_TIMESLOTS):
-                # print("Hour: ", hour)
+                #print("Hour: ", hour)
                 if hour == 0:
                     previous_price    = initial_previous_prices[day]
                     temperature_room1 = data["T1"]
@@ -175,8 +173,9 @@ def run_environment(policy, n_experiments=1, n_repetitions=1, plot=False):
 
                 else:
                     previous_price = price_matrix[day][hour-1]
-                    temperature_room1 = calculate_room_temperature(P1, occupancy1_matrix[day][hour], temperature_room1, temperature_room2, data, V, outside_temperature_vector[hour-1])
-                    temperature_room2 = calculate_room_temperature(P2, occupancy2_matrix[day][hour], temperature_room2, temperature_room1, data, V, outside_temperature_vector[hour-1])
+                    old_T1, old_T2 = temperature_room1, temperature_room2
+                    temperature_room1 = calculate_room_temperature(P1, occupancy1_matrix[day][hour], old_T1, old_T2, data, V, outside_temperature_vector[hour-1])
+                    temperature_room2 = calculate_room_temperature(P2, occupancy2_matrix[day][hour], old_T2, old_T1, data, V, outside_temperature_vector[hour-1])
                     humidity = (
                         humidity +
                         data["humidity_occupancy_coeff"] * (occupancy1_matrix[day][hour] + occupancy2_matrix[day][hour]) -
