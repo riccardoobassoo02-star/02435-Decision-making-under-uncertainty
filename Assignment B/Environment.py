@@ -38,7 +38,7 @@ def _plot_experiment(rep, day, day_log, price_series=None, temp_thresholds=None,
     V = day_log["V"]
 
     fig, axs = plt.subplots(3, 1, figsize=(14, 15), sharex=True)
-    fig.suptitle(f"Replication {rep+1} - Experiment {day+1}")
+    fig.suptitle(f"Replication {rep+1} - Day {day+1}")
 
     # Room 1: Power and temperature
     ax1 = axs[0]
@@ -255,16 +255,28 @@ def run_environment(policy, n_experiments=1, n_repetitions=1, plot=False):
 
 
 if __name__ == "__main__":
+    data = v2_SystemCharacteristics.get_fixed_data()
+    price_data = np.genfromtxt("Data/v2_PriceData.csv", delimiter=",", skip_header=1)
+    price_matrix = price_data[:, 1:]
     results = run_environment(
         SP_policy_30,
         n_experiments=2,
         n_repetitions=2,
         plot=True
     )
-
+    # Print hourly costs for day 1, rep 1
+    log = results["logs"][0]["log"]
+    print("Day 1 - Hourly costs:")
+    total = 0
+    for h in range(len(log["hour"])):
+        cost = price_matrix[0][h] * (log["V"][h] * data["ventilation_power"] + log["P1"][h] + log["P2"][h])
+        total += cost
+        print(f"  Hour {h}: {cost:.2f}")
+    print(f"  Total: {total:.2f}")
     all_objectives  = np.array(results["objectives"])
     mean_objectives = np.mean(all_objectives, axis=0)
     std_objectives  = np.std(all_objectives, axis=0)
+
 
     # plt.figure(figsize=(10, 5))
     # plt.errorbar(range(1, len(mean_objectives) + 1), mean_objectives, yerr=std_objectives, fmt='-o', capsize=5)
