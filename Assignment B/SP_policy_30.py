@@ -33,7 +33,6 @@ min_up_time = data['vent_min_up_time']
 
 M_temp = 50  # big-M constant for temperature ()
 M_hum = 100   # big-M constant for humidity
-epsilon = 0.1 # small constant for strict inequalities for overrule controllers 
 
 # Note: initial conditions (T0, H0) are not extracted here because they are provided at runtime by the environment via the state dictionary 
 
@@ -362,20 +361,20 @@ def solve_sp(state, nodes): # 2 dictionaries as inputs
 # ENTRY POINT (called by the environment)
 # ------------------------------------------------------------------
 def select_action(state):
-    # try:
-    H, B = min(3, 9-state["current_time"]), 2
-    nodes = build_tree(state, H=H, B=B, N_samples=100)
-    p1, p2, v = solve_sp(state, nodes)
-    HereAndNowActions = {
-        "HeatPowerRoom1": p1,
-        "HeatPowerRoom2": p2,
-        "VentilationON":  v
+    try:
+        H, B = min(3, 9-state["current_time"]), 2
+        nodes = build_tree(state, H=H, B=B, N_samples=100)
+        p1, p2, v = solve_sp(state, nodes)
+        HereAndNowActions = {
+            "HeatPowerRoom1": p1,
+            "HeatPowerRoom2": p2,
+            "VentilationON":  v
     }
-    # except Exception as e:
-    #     print(f"[ERROR] SP policy failed: {e}")
-    #     HereAndNowActions = {
-    #         "HeatPowerRoom1": 0,
-    #         "HeatPowerRoom2": 0,
-    #         "VentilationON":  0
-    #     }
+    except Exception as e:
+        print(f"[ERROR] SP policy failed: {e}")
+        HereAndNowActions = {
+        "HeatPowerRoom1": 0,
+        "HeatPowerRoom2": 0,
+        "VentilationON":  0
+    }
     return HereAndNowActions
