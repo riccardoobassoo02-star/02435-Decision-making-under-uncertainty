@@ -31,7 +31,9 @@ eta_occ     = data['humidity_occupancy_coeff']
 eta_vent    = data['humidity_vent_coeff']
 min_up_time = data['vent_min_up_time']
 
-M = 1000  # big-M constant
+M_temp = 50  # big-M constant for temperature ()
+M_hum = 150   # big-M constant for humidity
+epsilon = 0.1 # small constant for strict inequalities for overrule controllers 
 
 # Note: initial conditions (T0, H0) are not extracted here because they are provided at runtime by the environment via the state dictionary 
 
@@ -69,7 +71,7 @@ def build_tree(state, H, B, N_samples = 100):
         list of node dictionaries representing the full scenario tree
     """
 
-    # root node (tau=0) - current state (no uncertainty, probability=1)
+    # root node (tau=0) - current state (no uncertainty)
     root = {
         "id":         0,
         "tau":        0,
@@ -78,18 +80,18 @@ def build_tree(state, H, B, N_samples = 100):
         "price_prev": state["price_previous"],
         "occ1":       state["Occ1"],
         "occ2":       state["Occ2"],
-        "prob":       1.0
+        "prob":       1.0 # certain
     }
 
     nodes = [root]   # list of dictionaries, each representing a node in the scenario tree with its features and probability
     queue = [root]   # BFS queue (breadth-first search)
-    next_id = 1
+    next_id = 1      # initialization of the next_id counter
 
-    while queue:
+    while queue: # branching until the queue is empty (all nodes have been processed)
         parent = queue.pop(0) # takes the first element of the queue list (parent node) and removes it (so the queue is updated to contain only the children)
 
-        if parent["tau"] >= H: # when H becomes 0 (hour 10), we don't create any children
-            continue   # leaf node — no children
+        if parent["tau"] >= H: # when we go beyond the lookahead horizon, we don't create children. When H becomes 0 (hour 10), we don't create any children
+            continue   # leaf node - no children
 
         # BRANCHING: generate N_samples random children from this parent
         # define the features of the child nodes: price, occ1, occ2
@@ -98,14 +100,14 @@ def build_tree(state, H, B, N_samples = 100):
         sample_occ2s  = []
 
         for _ in range(N_samples):
-            p = price_model(parent["price"], parent["price_prev"])
-            o1, o2 = next_occupancy_levels(parent["occ1"], parent["occ2"])
+            p = price_model(parent["price"], parent["price_prev"]) # price model needs the current price and the previous to generate a hypothetical price for the child node
+            o1, o2 = next_occupancy_levels(parent["occ1"], parent["occ2"]) # occupancy model needs the current values of room occupancies
             sample_prices.append(p)
             sample_occ1s.append(o1)
             sample_occ2s.append(o2)
 
         # CLUSTERING: reduce N_samples to B representative centroids
-        X         = np.column_stack([sample_prices, sample_occ1s, sample_occ2s]) # feature matrix with all the N samples
+        X         = np.column_stack([sample_prices, sample_occ1s, sample_occ2s]) # feature matrix with all the N samples rows
         km        = KMeans(n_clusters=B, random_state=0, n_init=10).fit(X)
         labels    = km.labels_
         centroids = km.cluster_centers_   # reduced matrix of shape (B, 3)
@@ -132,10 +134,10 @@ def build_tree(state, H, B, N_samples = 100):
     return nodes
 
 # ------------------------------------------------------------------
-# SP MILP SOLVER (using the mathematical model of the solution to assignment part A)
+# SP MILP SOLVER
 # ------------------------------------------------------------------ 
 
-def solve_sp(state, nodes):
+def solve_sp(state, nodes): # 2 dictionaries as inputs
     """
     Builds and solves the multi-stage SP MILP on the scenario tree.
     Returns the here-and-now decisions (p1, p2, v) for tau=0.
@@ -145,10 +147,10 @@ def solve_sp(state, nodes):
     # ------------------------------------------------------------------
     # SETUP
     # ------------------------------------------------------------------
-    node_by_id   = {n["id"]: n for n in nodes}                  # dictionary for easy node lookup
-    nodes_future = [n for n in nodes if n["tau"] >= 1]          # only future nodes (tau>=1) lookup
+    node_by_id   = {n["id"]: n for n in nodes}                  # dictionary with node IDs as keys for easy node lookup
+    nodes_future = [n for n in nodes if n["tau"] >= 1]          # list of only future nodes (tau>=1) lookup
 
-    t_now = state["current_time"]
+    t_now = state["current_time"] # current hour (0-9)
 
     # low temperature overrule controller status at tau = 0 (known from environment)
     low_override_init = {1: state["low_override_r1"],           # room 1
@@ -156,14 +158,14 @@ def solve_sp(state, nodes):
 
     # ventilation inertia carried over from past decisions
     vent_counter     = state["vent_counter"]                    # how many consecutive hours the ventilation has been ON until now
-    remaining_forced = max(0, min_up_time - vent_counter) if vent_counter > 0 else 0 # how many more hours the ventilation must be forced ON to satisfy the minimum uptime constraint )
+    remaining_forced = max(0, min_up_time - vent_counter) if vent_counter > 0 else 0 # how many more hours the ventilation must be forced ON to satisfy the minimum uptime constraint
     v_prev           = 1 if vent_counter > 0 else 0             # 1 if the ventilation was ON in the previous hour
 
     # ------------------------------------------------------------------
     # SETS
     # ------------------------------------------------------------------
-    model.R     = RangeSet(1, 2)
-    model.NODES = Set(initialize=[n["id"] for n in nodes_future]) # list of node IDs for future nodes
+    model.R     = RangeSet(1, 2) # 2 rooms. Automatically creates the set {1, 2} since indexes are numbers
+    model.NODES = Set(initialize=[n["id"] for n in nodes_future]) # pyomo set of node IDs for future nodes (tau>=1). Using set and initialize since the indexes are not numerical
 
     # ------------------------------------------------------------------
     # VARIABLES
@@ -174,7 +176,7 @@ def solve_sp(state, nodes):
     model.v0 = Var(within=Binary) # ventilation ON/OFF
     model.s0 = Var(within=Binary)   # ventilation startup indicator at tau = 0 ( 1 if the ventilation is turned ON at tau=0, 0 otherwise)
 
-    # future nodes (tau >= 1)
+    # future nodes (tau>=1)
     model.p          = Var(model.R, model.NODES, within=NonNegativeReals, bounds=(0, P_max)) # heating power per room
     model.v          = Var(model.NODES, within=Binary)   # ventilation ON/OFF
     model.s          = Var(model.NODES, within=Binary)   # ventilation startup indicator
@@ -271,7 +273,7 @@ def solve_sp(state, nodes):
         nid   = n["id"]
         tau   = n["tau"]
         t_parent = t_now + tau - 1 # hour of the parent node
-        t_out = T_out[min(t_parent, len(T_out) - 1)] # external temperature
+        t_out = T_out[min(t_parent, len(T_out) - 1)] # external temperature a the parent node. the min is used as a safety measure, but USELESS
 
         for r in [1, 2]:
 
@@ -287,12 +289,12 @@ def solve_sp(state, nodes):
             )
 
             # LOW-TEMP OVERRULE CONTROLLER (eq. 8-16)
-            # detect temp < T_low (eq. 8-9)
-            model.c.add(model.temp[r, nid] <= T_low + M * (1 - model.y_low[r, nid]))
-            model.c.add(model.temp[r, nid] >= T_low - M * model.y_low[r, nid])
-            # detect temp > T_ok (eq. 10-11)
-            model.c.add(model.temp[r, nid] >= T_ok - M * (1 - model.y_ok[r, nid]))
-            model.c.add(model.temp[r, nid] <= T_ok + M * model.y_ok[r, nid])
+            # detect temp < T_low (eq. 8-9)---> SHOULD WE IMPLEMENT EPSILON?
+            model.c.add(model.temp[r, nid] <= T_low + M_temp * (1 - model.y_low[r, nid]))
+            model.c.add(model.temp[r, nid] >= T_low - M_temp * model.y_low[r, nid])
+            # detect temp > T_ok (eq. 10-11)---> SHOULD WE IMPLEMENT EPSILON?
+            model.c.add(model.temp[r, nid] >= T_ok - M_temp * (1 - model.y_ok[r, nid]))
+            model.c.add(model.temp[r, nid] <= T_ok + M_temp  * model.y_ok[r, nid])
             # activation: temp < T_low → u=1 (eq. 12)
             model.c.add(model.u[r, nid] >= model.y_low[r, nid])
             # memory: u stays ON only if was ON before (eq. 13)
@@ -305,8 +307,8 @@ def solve_sp(state, nodes):
 
             # HIGH-TEMP OVERRULE CONTROLLER (eq. 5-7)
             # detect temp >= T_high (eq. 5-6)
-            model.c.add(model.temp[r, nid] >= T_high - M * (1 - model.y_high[r, nid]))
-            model.c.add(model.temp[r, nid] <= T_high + M * model.y_high[r, nid])
+            model.c.add(model.temp[r, nid] >= T_high - M_temp * (1 - model.y_high[r, nid]))
+            model.c.add(model.temp[r, nid] <= T_high + M_temp * model.y_high[r, nid])
             # force power to zero (eq. 7)
             model.c.add(model.p[r, nid] <= P_max * (1 - model.y_high[r, nid]))
 
@@ -319,7 +321,7 @@ def solve_sp(state, nodes):
         )
 
         # HUMIDITY OVERRULE CONTROLLER(eq. 21)
-        model.c.add(model.hum[nid] <= H_high + M * model.v[nid])
+        model.c.add(model.hum[nid] <= H_high + M_hum * model.v[nid])
 
         # VENTILATION INERTIA (eq. 17-20)
         # startup detection at this node
