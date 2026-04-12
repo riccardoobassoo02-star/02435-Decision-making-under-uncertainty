@@ -293,7 +293,11 @@ def run_environment(policy, n_experiments=1, n_repetitions=1, plot=False):
 if __name__ == "__main__": # executes the following block only if this file is run directly (not imported as a module)
     data = v2_SystemCharacteristics.get_fixed_data()
     price_data = np.genfromtxt("Data/v2_PriceData.csv", delimiter=",", skip_header=1)
-    price_matrix = price_data[:, 1:]
+    price_matrix = price_data[:, 1:] 
+    # prima di run_environment(), fai girare un problema dummy 
+    import gurobipy as gp
+    env = gp.Env()   # forza l'inizializzazione di Gurobi
+    env.dispose()
     results = run_environment(
         SP_policy_30, # policy currently under evaluation
         n_experiments=2, # number of days to simulate

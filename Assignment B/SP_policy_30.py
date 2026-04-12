@@ -365,7 +365,7 @@ def select_action(state):
     """Selects an action dictionary given the current state by building and solving a multi-stage 
     SP MILP on a scenario tree generated via iterative Branch & Cluster."""
     try:
-        H, B = min(3, 9-state["current_time"]), 2
+        H, B = min(4, 9-state["current_time"]), 4 # lookahead horizon and branching factor (tunable parameters that affect the trade-off between solution quality and computational time)
         nodes = build_tree(state, H=H, B=B, N_samples=100)
         p1, p2, v = solve_sp(state, nodes)
         HereAndNowActions = {
