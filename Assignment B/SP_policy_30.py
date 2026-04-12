@@ -10,7 +10,7 @@ from sklearn.cluster import KMeans
 import numpy as np
 from Utils.PriceProcessRestaurant import price_model
 from Utils.OccupancyProcessRestaurant import next_occupancy_levels
-from Utils.SystemCharacteristics import get_fixed_data
+from Utils.v2_SystemCharacteristics import get_fixed_data
 
 # parameters extraction from system characteristics
 data        = get_fixed_data()
@@ -191,8 +191,9 @@ def solve_sp(state, nodes): # 2 dictionaries as inputs
     model.y_high = Var(model.R, model.NODES, within=Binary)  # 1 if the temperature of the room exceeds the high threshold
 
     # ------------------------------------------------------------------
-    # HELPER FUNCTIONS — return parent value (variable or known parameter)
-    # ------------------------------------------------------------------
+    # HELPER FUNCTIONS 
+    # ------------------------------------------------------------------ 
+    """return parent value (variable or known parameter)"""
     def v_par(node): # ventilation of the parent
         return model.v0 if node["tau"] == 1 else model.v[node["parent_id"]]
 
@@ -361,6 +362,8 @@ def solve_sp(state, nodes): # 2 dictionaries as inputs
 # ENTRY POINT (called by the environment)
 # ------------------------------------------------------------------
 def select_action(state):
+    """Selects an action dictionary given the current state by building and solving a multi-stage 
+    SP MILP on a scenario tree generated via iterative Branch & Cluster."""
     try:
         H, B = min(3, 9-state["current_time"]), 2
         nodes = build_tree(state, H=H, B=B, N_samples=100)
