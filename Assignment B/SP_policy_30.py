@@ -4,6 +4,7 @@ Created on Mon Nov 17 11:14:31 2025
 
 @author: geots
 """
+import time
 from pyomo.environ import *
 from sklearn.cluster import KMeans
 import numpy as np
@@ -354,6 +355,8 @@ def solve_sp(state, nodes): # 2 dictionaries as inputs
     p2 = value(model.p0[2])           # heating power of room 2 at tau=0
     v  = int(value(model.v0) > 0.5)   # ventilation ON/OFF at tau=0 (binary variable, thresholded at 0.5 for the solver tollerance)
 
+
+
     return p1, p2, v
 
 
@@ -363,20 +366,24 @@ def solve_sp(state, nodes): # 2 dictionaries as inputs
 def select_action(state):
     """Selects an action dictionary given the current state by building and solving a multi-stage 
     SP MILP on a scenario tree generated via iterative Branch & Cluster."""
+    
     try:
+        start = time.time()
         H, B = min(4, 9-state["current_time"]), 3 # lookahead horizon and branching factor (tunable parameters that affect the trade-off between solution quality and computational time)
         nodes = build_tree(state, H=H, B=B, N_samples=100)
         p1, p2, v = solve_sp(state, nodes)
+        end = time.time()
+        print(f"Total policy time: {end - start:.2f} s")
         HereAndNowActions = {
             "HeatPowerRoom1": p1,
             "HeatPowerRoom2": p2,
             "VentilationON":  v
-        }
+        } 
     except Exception as e:
         print(f"[ERROR] SP policy failed: {e}")
         HereAndNowActions = {
         "HeatPowerRoom1": 0,
         "HeatPowerRoom2": 0,
         "VentilationON":  0
-        }
+        } 
     return HereAndNowActions
