@@ -239,7 +239,7 @@ def run_environment(policy, n_experiments=1, n_repetitions=1, plot=False):
                 start = time.time()
                 decision = Checks.check_and_sanitize_action(policy, state, POWER_MAX)
                 elapsed = time.time() - start
-                print(f"  Rep {rep+1} | Day {day+1} | Hour {hour:2d} → {elapsed:.2f}s")
+                print(f"  Rep {rep+1} | Day {day+1} | Hour {hour:2d} | Runtime: {elapsed:.2f}s") # calculate and print the runtime of the policy evaluation for each hour
 
                 # Update decision variables
                 V  = 1 if (humidity > data["humidity_threshold"]) or (0 < vent_counter < VENT_MIN_UP_TIME) else decision["VentilationON"] # if humidity is above the threshold or the min up time is still going, the ventilation is turned ON regardless of the policy's decision. .

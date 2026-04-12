@@ -4,7 +4,6 @@ Created on Mon Nov 17 11:14:31 2025
 
 @author: geots
 """
-
 from pyomo.environ import *
 from sklearn.cluster import KMeans
 import numpy as np
@@ -345,7 +344,7 @@ def solve_sp(state, nodes): # 2 dictionaries as inputs
     # SOLVE
     # ------------------------------------------------------------------
     solver = SolverFactory('gurobi')
-    result = solver.solve(model)
+    result = solver.solve(model, options={"OutputFlag": 0}) # suppress solver output for cleaner logs
 
     if result.solver.termination_condition != TerminationCondition.optimal:
         print("[WARNING] SP did not solve to optimality — returning zeros")
@@ -365,7 +364,7 @@ def select_action(state):
     """Selects an action dictionary given the current state by building and solving a multi-stage 
     SP MILP on a scenario tree generated via iterative Branch & Cluster."""
     try:
-        H, B = min(4, 9-state["current_time"]), 4 # lookahead horizon and branching factor (tunable parameters that affect the trade-off between solution quality and computational time)
+        H, B = min(4, 9-state["current_time"]), 3 # lookahead horizon and branching factor (tunable parameters that affect the trade-off between solution quality and computational time)
         nodes = build_tree(state, H=H, B=B, N_samples=100)
         p1, p2, v = solve_sp(state, nodes)
         HereAndNowActions = {
