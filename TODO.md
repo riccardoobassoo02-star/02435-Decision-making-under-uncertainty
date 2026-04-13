@@ -4,7 +4,7 @@ By next week
 - [ ] review task 3 code (someone else)
 - [ ] review plots task 6 (Gerard)
 - [ ] review plots task 6 (someone else)
-- [ ] start to write report task 3 and 6 (Este)
+- [ ] start to write report task 3 and 6 (Este): does it make sense to have differente variables for here-amd-now and for future lookahead time stages?
 
 
 Next:
