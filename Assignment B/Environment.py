@@ -3,6 +3,7 @@ import SP_policy_30
 import numpy as np
 import matplotlib.pyplot as plt
 import warnings
+from Utils.v2_SystemCharacteristics import get_fixed_data
 warnings.filterwarnings("ignore")
 
 def update_overrule_controler_state(overrule_state, temperature, data):
@@ -206,11 +207,11 @@ def run_environment(policy, n_experiments=1, n_repetitions=1, plot=False):
                 else:
                     previous_price = price_matrix[day][hour-1]
                     old_T1, old_T2 = temperature_room1, temperature_room2 # store old temperatures to calculate the new ones based on them (before updating them)
-                    temperature_room1 = calculate_room_temperature(P1, occupancy1_matrix[day][hour], old_T1, old_T2, data, V, outside_temperature_vector[hour-1])
-                    temperature_room2 = calculate_room_temperature(P2, occupancy2_matrix[day][hour], old_T2, old_T1, data, V, outside_temperature_vector[hour-1])
+                    temperature_room1 = calculate_room_temperature(P1, occupancy1_matrix[day][hour-1], old_T1, old_T2, data, V, outside_temperature_vector[hour-1])
+                    temperature_room2 = calculate_room_temperature(P2, occupancy2_matrix[day][hour-1], old_T2, old_T1, data, V, outside_temperature_vector[hour-1])
                     humidity = (
                         humidity +
-                        data["humidity_occupancy_coeff"] * (occupancy1_matrix[day][hour] + occupancy2_matrix[day][hour]) -
+                        data["humidity_occupancy_coeff"] * (occupancy1_matrix[day][hour-1] + occupancy2_matrix[day][hour-1]) -
                         data["humidity_vent_coeff"] * V
                     )
 
@@ -308,6 +309,11 @@ if __name__ == "__main__": # executes the following block only if this file is r
     mean_objectives = np.mean(all_objectives, axis=0)
     std_objectives  = np.std(all_objectives, axis=0)
 
+    data = get_fixed_data()
+    T_out = data['outdoor_temperature']  # array con una temp per ogni ora
+
+    t = 5
+    print(T_out[t])  # temperatura esterna all'ora 5
 
     # plt.figure(figsize=(10, 5))
     # plt.errorbar(range(1, len(mean_objectives) + 1), mean_objectives, yerr=std_objectives, fmt='-o', capsize=5)
