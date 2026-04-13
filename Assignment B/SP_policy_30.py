@@ -56,7 +56,7 @@ M_hum = 100   # big-M constant for humidity
 # SCENARIO TREE BUILDER (iterative Branch & Cluster)
 # ------------------------------------------------------------------
 
-def build_tree(state, H, B, N_samples = 150):
+def build_tree(state, H, B, N_samples = 100):
     """
     Builds scenario tree using iterative Branch & Cluster.
 
@@ -381,8 +381,8 @@ def select_action(state):
     except Exception as e:
         print(f"[ERROR] SP policy failed: {e}")
         HereAndNowActions = {
-        "HeatPowerRoom1": 0,
-        "HeatPowerRoom2": 0,
-        "VentilationON":  0
-        } 
+            "HeatPowerRoom1": 0,
+            "HeatPowerRoom2": 0,
+            "VentilationON":  0
+        }
     return HereAndNowActions
