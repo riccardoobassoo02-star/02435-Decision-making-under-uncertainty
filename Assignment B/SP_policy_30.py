@@ -56,7 +56,7 @@ M_hum = 100   # big-M constant for humidity
 # SCENARIO TREE BUILDER (iterative Branch & Cluster)
 # ------------------------------------------------------------------
 
-def build_tree(state, H, B, N_samples = 100):
+def build_tree(state, H, B, N_samples = 150):
     """
     Builds scenario tree using iterative Branch & Cluster.
 
@@ -279,8 +279,7 @@ def solve_sp(state, nodes): # 2 dictionaries as inputs
 
             # TEMPERATURE DYNAMICS (eq. 2)
             model.c.add(
-                model.temp[r, nid] ==
-                    temp_par(r, n) # temperature value in the present node (parent)
+                model.temp[r, nid] == temp_par(r, n) # temperature value in the parent node 
                     + zeta_exch * (temp_other_par(r, n) - temp_par(r, n)) # heat exchange with the other room
                     - zeta_loss * (temp_par(r, n) - t_out) # thermal loss to the outside
                     + zeta_conv * p_par(r, n) # heating power contribution (of the previous node/hour)
