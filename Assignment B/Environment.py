@@ -181,8 +181,8 @@ def run_environment(policy, n_experiments=1, n_repetitions=1, plot=False):
 
         # Simulation
         for day in range(0, n_experiments): 
-            vent_counter = 0           # consectutive ventilation tracker has to be reset at the beggining of each day
-            is_override_room1 = False  # overrule controllers state also has to be reset at the beggining of each day
+            vent_counter = 0           # consectutive ventilation tracker has to be reset at the beggining of each day (false=OFF, true=ON)
+            is_override_room1 = False  # overrule controllers state also has to be reset at the beggining of each day (false=OFF, true=ON)
             is_override_room2 = False
             objective_value = 0        # objective value has to be reset at the beggining of each day
 
@@ -241,6 +241,11 @@ def run_environment(policy, n_experiments=1, n_repetitions=1, plot=False):
                 V  = 1 if (humidity > data["humidity_threshold"]) or (0 < vent_counter < VENT_MIN_UP_TIME) else decision["VentilationON"] # if humidity is above the threshold or the min up time is still going, the ventilation is turned ON regardless of the policy's decision. .
                 P1 = decision["HeatPowerRoom1"] if not is_override_room1 else HEATING_MAX_POWER # if overrule controller is ON, the heating power is set to the maximum, regardless of the policy's decision
                 P2 = decision["HeatPowerRoom2"] if not is_override_room2 else data["heating_max_power"] # if overrule controller is ON, the heating power is set to the maximum, regardless of the policy's decision
+                # High-temp overrule: force heating OFF if temperature is at or above max threshold
+                if temperature_room1 >= data["temp_max_comfort_threshold"]:
+                    P1 = 0
+                if temperature_room2 >= data["temp_max_comfort_threshold"]:
+                    P2 = 0
 
                 # Update consecutive ventilation usage counter
                 if V == 0:
