@@ -52,17 +52,14 @@ M_hum = 100   # big-M constant for humidity
 # }
 
 
-# ------------------------------------------------------------------
 # SCENARIO TREE BUILDER (iterative Branch & Cluster)
-# ------------------------------------------------------------------
-
-def build_tree(state, H, B, N_samples = 100):
+def build_tree(state, L, B, N_samples = 100):
     """
     Builds scenario tree using iterative Branch & Cluster.
 
     Args:
         state:     current state dictionary from environment
-        H:         lookahead horizon (number of future steps)
+        L:         lookahead horizon (number of future steps)
         B:         branching factor (number of clusters per node)
         N_samples: raw samples generated per node before clustering
 
@@ -89,7 +86,7 @@ def build_tree(state, H, B, N_samples = 100):
     while queue: # branching until the queue is empty (all nodes have been processed)
         parent = queue.pop(0) # takes the first element of the queue list (parent node) and removes it (so the queue is updated to contain only the children)
 
-        if parent["tau"] >= H: # when we go beyond the lookahead horizon, we don't create children. When H becomes 0 (hour 10), we don't create any children
+        if parent["tau"] >= L: # when we go beyond the lookahead horizon, we don't create children. When H becomes 0 (hour 10), we don't create any children
             continue   # leaf node - no children
 
         # BRANCHING: generate N_samples random children from this parent
@@ -132,10 +129,8 @@ def build_tree(state, H, B, N_samples = 100):
 
     return nodes
 
-# ------------------------------------------------------------------
-# SP MILP SOLVER
-# ------------------------------------------------------------------ 
 
+# SP MILP SOLVER 
 def solve_sp(state, nodes): # 2 dictionaries as inputs
     """
     Builds and solves the multi-stage SP MILP on the scenario tree.
@@ -143,9 +138,7 @@ def solve_sp(state, nodes): # 2 dictionaries as inputs
     """
     model = ConcreteModel()
 
-    # ------------------------------------------------------------------
     # SETUP
-    # ------------------------------------------------------------------
     node_by_id   = {n["id"]: n for n in nodes}                  # dictionary with node IDs as keys for easy node lookup
     nodes_future = [n for n in nodes if n["tau"] >= 1]          # list of only future nodes (tau>=1) lookup
 
@@ -160,39 +153,32 @@ def solve_sp(state, nodes): # 2 dictionaries as inputs
     remaining_forced = max(0, min_up_time - vent_counter) if vent_counter > 0 else 0 # how many more hours the ventilation must be forced ON to satisfy the minimum uptime constraint
     v_prev           = 1 if vent_counter > 0 else 0             # 1 if the ventilation was ON in the previous hour
 
-    # ------------------------------------------------------------------
+
     # SETS
-    # ------------------------------------------------------------------
     model.R     = RangeSet(1, 2) # 2 rooms. Automatically creates the set {1, 2} since indexes are numbers
     model.NODES = Set(initialize=[n["id"] for n in nodes_future]) # pyomo set of node IDs for future nodes (tau>=1). Using set and initialize since the indexes are not numerical
 
-    # ------------------------------------------------------------------
-    # VARIABLES
-    # ------------------------------------------------------------------
 
+    # VARIABLES 
     # here-and-now (tau=0) 
     model.p0 = Var(model.R, within=NonNegativeReals, bounds=(0, P_max)) # heating power per room
     model.v0 = Var(within=Binary) # ventilation ON/OFF
     model.s0 = Var(within=Binary)   # ventilation startup indicator at tau = 0 ( 1 if the ventilation is turned ON at tau=0, 0 otherwise)
-
     # future nodes (tau>=1)
     model.p          = Var(model.R, model.NODES, within=NonNegativeReals, bounds=(0, P_max)) # heating power per room
     model.v          = Var(model.NODES, within=Binary)   # ventilation ON/OFF
     model.s          = Var(model.NODES, within=Binary)   # ventilation startup indicator
     model.temp       = Var(model.R, model.NODES, within=Reals) # temperature per room
     model.hum        = Var(model.NODES, within=NonNegativeReals) # humidity
-
     # low-temp overrule: 3 separate binary variables (solution model eq. 8-16)
     model.y_low = Var(model.R, model.NODES, within=Binary)   # 1 if temp < T_low
     model.y_ok  = Var(model.R, model.NODES, within=Binary)   # 1 if temp > T_ok
     model.u     = Var(model.R, model.NODES, within=Binary)   # 1 if overrule active
-
     # high-temp overrule and humidity overrule
     model.y_high = Var(model.R, model.NODES, within=Binary)  # 1 if the temperature of the room exceeds the high threshold
 
-    # ------------------------------------------------------------------
+  
     # HELPER FUNCTIONS 
-    # ------------------------------------------------------------------ 
     """return parent value (variable or known parameter)"""
     def v_par(node): # ventilation of the parent
         return model.v0 if node["tau"] == 1 else model.v[node["parent_id"]]
@@ -225,9 +211,8 @@ def solve_sp(state, nodes): # 2 dictionaries as inputs
             return int(low_override_init[r])   # int converts boolean (true or false)to 0/1 (in the environment is defined as true/false)
         return model.u[r, node["parent_id"]]
 
-    # ------------------------------------------------------------------
+    
     # OBJECTIVE FUNCTION — minimize expected cost over lookahead horizon
-    # ------------------------------------------------------------------
     obj_expr = state["price_t"] * (
         model.p0[1] + model.p0[2] + P_vent * model.v0
     )
@@ -237,12 +222,11 @@ def solve_sp(state, nodes): # 2 dictionaries as inputs
         )
     model.obj = Objective(expr=obj_expr, sense=minimize)
 
-    # ------------------------------------------------------------------
+
     # CONSTRAINTS
-    # ------------------------------------------------------------------
     model.c = ConstraintList()
     # HERE AND NOW CONSTRAINTS (tau=0) 
-
+    
     # HERE-AND-NOW OVERRULE CONSTRAINTS
     for r in [1, 2]:
         temp_now = state["T1"] if r == 1 else state["T2"]
@@ -340,9 +324,7 @@ def solve_sp(state, nodes): # 2 dictionaries as inputs
                 model.c.add(model.v[nid] >= model.s[ancestor["id"]]) # if startup, then s = 1  and forces v to be 1
 
     
-    # ------------------------------------------------------------------
     # SOLVE
-    # ------------------------------------------------------------------
     solver = SolverFactory('gurobi')
     result = solver.solve(model, options={"OutputFlag": 0}) # suppress solver output for cleaner logs
 
@@ -359,17 +341,15 @@ def solve_sp(state, nodes): # 2 dictionaries as inputs
     return p1, p2, v
 
 
-# ------------------------------------------------------------------
 # ENTRY POINT (called by the environment)
-# ------------------------------------------------------------------
 def select_action(state):
     """Selects an action dictionary given the current state by building and solving a multi-stage 
     SP MILP on a scenario tree generated via iterative Branch & Cluster."""
     
     try:
         start = time.time()
-        H, B = min(4, 9-state["current_time"]), 3 # lookahead horizon and branching factor (tunable parameters that affect the trade-off between solution quality and computational time)
-        nodes = build_tree(state, H=H, B=B, N_samples=100)
+        L, B = min(4, 9-state["current_time"]), 3 # lookahead horizon and branching factor (tunable parameters that affect the trade-off between solution quality and computational time)
+        nodes = build_tree(state, L=L, B=B, N_samples=100)
         p1, p2, v = solve_sp(state, nodes)
         end = time.time()
         print(f"Total policy time: {end - start:.2f} s")
