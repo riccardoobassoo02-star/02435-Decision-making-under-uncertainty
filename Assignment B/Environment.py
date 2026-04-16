@@ -315,10 +315,10 @@ if __name__ == "__main__": # executes the following block only if this file is r
     std_objectives  = np.std(all_objectives, axis=0)
 
     data = get_fixed_data()
-    T_out = data['outdoor_temperature']  # array con una temp per ogni ora
+    T_out = data['outdoor_temperature']  
 
     t = 5
-    print(T_out[t])  # temperatura esterna all'ora 5
+    print(T_out[t])
 
     # plt.figure(figsize=(10, 5))
     # plt.errorbar(range(1, len(mean_objectives) + 1), mean_objectives, yerr=std_objectives, fmt='-o', capsize=5)

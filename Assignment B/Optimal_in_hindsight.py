@@ -218,8 +218,8 @@ for day in range(100):
 results_df = pd.DataFrame(all_rows)
 OUTPUT_DIR = FILE_DIR/ "results" 
 OUTPUT_DIR.mkdir(exist_ok=True)
-results_df.to_csv(OUTPUT_DIR / 'HVAC_Optimization_Results.csv', index=False)
-print("Results saved to HVAC_Optimization_Results.csv")
+results_df.to_csv(OUTPUT_DIR / 'Results_in_hindsight.csv', index=False)
+print("Results saved to Results_in_hindsight.csv")
 
 # out of the for loop, calculates and prints the average daily cost over the 100 days
 average_cost = np.mean(daily_costs)
