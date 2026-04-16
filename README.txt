@@ -37,7 +37,7 @@ Builds a scenario tree using the **Repeated Branch & Cluster** method. Takes the
 | Parameter | Description |
 |-----------|-------------|
 | `state` | Current state dictionary from the environment |
-| `H` | Lookahead horizon — number of future stages beyond hour *t* |
+| `L` | Lookahead horizon — number of future stages beyond hour *t* |
 | `B` | Branching factor — number of children per node |
 | `N_samples` | Monte Carlo samples generated per node before clustering (default: 100) |
 
