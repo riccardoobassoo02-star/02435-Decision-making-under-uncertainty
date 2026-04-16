@@ -47,9 +47,9 @@ def check_and_sanitize_action(policy, state, PowerMax):
     elapsed = time.time() - t0
 
     # If policy is too slow → dummy
-    # if elapsed > 15.0:
-    #     print(f"[WARNING] Policy too slow ({elapsed:.2f}s). Using dummy action.")
-    #     return DUMMY_ACTION.copy()
+    if elapsed > 15.0:
+        print(f"[WARNING] Policy too slow ({elapsed:.2f}s). Using dummy action.")
+        return DUMMY_ACTION.copy()
 
     # except Exception as e:
     #     print(f"[WARNING] Policy crashed: {e}. Using dummy action.")
