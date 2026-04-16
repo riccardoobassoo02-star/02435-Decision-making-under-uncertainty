@@ -17,7 +17,7 @@ import numpy as np
 # ------------------------------------------------------------
 # Dummy safe action
 # ------------------------------------------------------------
-DUMMY_ACTION = {"p1": 0.0, "p2": 0.0, "v": 0}
+DUMMY_ACTION = {"HeatPowerRoom1": 0.0, "HeatPowerRoom2": 0.0, "VentilationON": 0}
 
 def check_and_sanitize_action(policy, state, PowerMax):
     """
@@ -42,18 +42,18 @@ def check_and_sanitize_action(policy, state, PowerMax):
     # 1. Ask the policy & time it
     # ---------------------------------------
     t0 = time.time()
-    try:
-        action = policy.select_action(state)
-        elapsed = time.time() - t0
+    # try:
+    action = policy.select_action(state)
+    elapsed = time.time() - t0
 
-        # If policy is too slow → dummy
-        if elapsed > 15.0:
-            print(f"[WARNING] Policy too slow ({elapsed:.2f}s). Using dummy action.")
-            return DUMMY_ACTION.copy()
+    # If policy is too slow → dummy
+    # if elapsed > 15.0:
+    #     print(f"[WARNING] Policy too slow ({elapsed:.2f}s). Using dummy action.")
+    #     return DUMMY_ACTION.copy()
 
-    except Exception as e:
-        print(f"[WARNING] Policy crashed: {e}. Using dummy action.")
-        return DUMMY_ACTION.copy()
+    # except Exception as e:
+    #     print(f"[WARNING] Policy crashed: {e}. Using dummy action.")
+    #     return DUMMY_ACTION.copy()
 
     
 
@@ -63,16 +63,16 @@ def check_and_sanitize_action(policy, state, PowerMax):
     # ---------------------------------------
     # 2. Clip to feasible set (or fail → dummy)
     # ---------------------------------------
-    try:
-        action["HeatPowerRoom1"] = float(np.clip(action["HeatPowerRoom1"], 0, PowerMax[1]))
-        action["HeatPowerRoom2"] = float(np.clip(action["HeatPowerRoom2"], 0, PowerMax[2]))
-    
-        # ventilation: threshold to {0,1}
-        action["VentilationON"] = int(float(action["VentilationON"]) > 0.5)
+    # try:
+    action["HeatPowerRoom1"] = float(np.clip(action["HeatPowerRoom1"], 0, PowerMax[1]))
+    action["HeatPowerRoom2"] = float(np.clip(action["HeatPowerRoom2"], 0, PowerMax[2]))
 
-    except Exception as e:
-        print(f"[WARNING] Action clipping failed: {e}. Using dummy action.")
-        return DUMMY_ACTION.copy()
+    # ventilation: threshold to {0,1}
+    action["VentilationON"] = int(float(action["VentilationON"]) > 0.5)
+
+    # except Exception as e:
+    #     print(f"[WARNING] Action clipping failed: {e}. Using dummy action.")
+    #     return DUMMY_ACTION.copy()
 
     # ---------------------------------------
     # Return sanitized action
