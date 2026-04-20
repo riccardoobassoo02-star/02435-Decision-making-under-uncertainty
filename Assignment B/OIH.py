@@ -95,8 +95,8 @@ def solve_MILP(day):
     model.c9 = Constraint(model.R, model.T, rule=lambda model, r, t: model.temp[r, t] >= T_low - M * model.temp_low[r, t])
 
     # 10-11. Detecting when Temperature is above the “OK” threshold
-    model.c10 = Constraint(model.R, model.T, rule=lambda model, r, t: model.temp[r, t] >= T_high - M * (1 - model.temp_ok[r, t]))
-    model.c11 = Constraint(model.R, model.T, rule=lambda model, r, t: model.temp[r, t] <= T_high + M * model.temp_ok[r, t])
+    model.c10 = Constraint(model.R, model.T, rule=lambda model, r, t: model.temp[r, t] >= T_ok - M * (1 - model.temp_ok[r, t]))
+    model.c11 = Constraint(model.R, model.T, rule=lambda model, r, t: model.temp[r, t] <= T_ok + M * model.temp_ok[r, t])
 
     # 12-13. Triggering Overrule (only) if Temperature is low
     model.c12 = Constraint(model.R, model.T, rule=lambda model, r, t: model.overrule[r, t] >= model.temp_low[r, t])
