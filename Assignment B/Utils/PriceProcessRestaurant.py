@@ -12,8 +12,7 @@ NOT TO BE CHANGED BY THE STUDENTS
 
 import numpy as np
 import matplotlib.pyplot as plt
-from Utils import SystemCharacteristics
-
+from Utils import v2_SystemCharacteristics
 
 def price_model(current_price, previous_price):
     """

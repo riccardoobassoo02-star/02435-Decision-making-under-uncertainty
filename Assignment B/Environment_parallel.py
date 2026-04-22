@@ -1,5 +1,5 @@
 from Utils import v2_SystemCharacteristics, Checks
-import SP_policy_30, SP_policy_30_v2
+from Policies import SP_policy_30, SP_policy_30_v2
 import numpy as np
 import matplotlib.pyplot as plt
 import warnings
