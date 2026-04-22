@@ -256,8 +256,8 @@ def solve_forward_pass_milp(state, eta):
     else:
         future_cost = 0
         for k in range(K):
-            vfa_k = (eta_next[0] * (model.T1_new[k] - 15) / 30
-                    + eta_next[1] * (model.T2_new[k] - 15) / 30
+            vfa_k = (eta_next[0] * (model.T1_new[k] - 22) / 8
+                    + eta_next[1] * (model.T2_new[k] - 22) / 8
                     + eta_next[2] * (model.H_new[k] - 30) / 70
                     + eta_next[3] * (samples[k]["Occ1"] - 20) / 30
                     + eta_next[4] * (samples[k]["Occ2"] - 10) / 20
