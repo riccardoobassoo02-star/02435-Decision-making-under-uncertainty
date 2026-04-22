@@ -279,7 +279,7 @@ def solve_forward_pass_milp(state, eta):
         "v":  int(value(model.v))
     }
 
-def forward_pass(eta, initial_state):
+def forward_pass(eta, initial_state): # policy evaluations (with fixed actions)
     states  = [[None] * L for _ in range(N)]
     actions = [[None] * L for _ in range(N)]
     costs   = [[0.0] * L for _ in range(N)]
