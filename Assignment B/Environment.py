@@ -1,6 +1,6 @@
 from Utils import v2_SystemCharacteristics, Checks
-import SP_policy_30
-import ADP_policy_30
+#import SP_policy_30
+import ADP_policy_30v2
 import numpy as np
 import matplotlib.pyplot as plt
 import warnings
@@ -297,7 +297,7 @@ if __name__ == "__main__": # executes the following block only if this file is r
     price_data = np.genfromtxt("Data/v2_PriceData.csv", delimiter=",", skip_header=1)
     price_matrix = price_data[:, 1:] 
     results = run_environment(
-        SP_policy_30, # policy currently under evaluation
+        ADP_policy_30v2, # policy currently under evaluation
         n_experiments=2, # number of days to simulate
         n_repetitions=2, # number of repetitions of the whole set of experiments
         plot=True # include plots for each experiment (day)
