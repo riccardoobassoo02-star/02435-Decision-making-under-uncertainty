@@ -7,7 +7,7 @@ from Utils.OccupancyProcessRestaurant import next_occupancy_levels
 from Utils.v2_SystemCharacteristics import get_fixed_data
 
 data = get_fixed_data()
-N               = 100
+N               = 1000
 L               = data['num_timeslots']
 P_max           = data['heating_max_power']
 zeta_exch       = data['heat_exchange_coeff']
@@ -153,10 +153,10 @@ def solve_forward_pass_fast(state, eta):
     if eta_next is None:
         p1, p2, v = 0, 0, 0
     else:
-        coeff_p1 = price + eta_next[0] * zeta_conv / 15
-        coeff_p2 = price + eta_next[1] * zeta_conv / 15
+        coeff_p1 = price + eta_next[0] * zeta_conv / 8
+        coeff_p2 = price + eta_next[1] * zeta_conv / 8
         coeff_v  = (price * P_vent
-                    - zeta_cool * (eta_next[0] / 15 + eta_next[1] / 15)
+                    - zeta_cool * (eta_next[0] / 8 + eta_next[1] / 8)
                     - eta_vent * eta_next[2] / 70
                     + eta_next[7] / 3)
 
@@ -256,13 +256,13 @@ def solve_forward_pass_milp(state, eta):
     else:
         future_cost = 0
         for k in range(K):
-            vfa_k = (eta_next[0] * (model.T1_new[k] - 15) / 30
-                    + eta_next[1] * (model.T2_new[k] - 15) / 30
+            vfa_k = (eta_next[0] * (model.T1_new[k] - 22) / 8
+                    + eta_next[1] * (model.T2_new[k] - 22) / 8
                     + eta_next[2] * (model.H_new[k] - 30) / 70
                     + eta_next[3] * (samples[k]["Occ1"] - 20) / 30
                     + eta_next[4] * (samples[k]["Occ2"] - 10) / 20
-                    + eta_next[5] * (samples[k]["price_t"] - 2) / 6
-                    + eta_next[6] * (state["price_t"] - 2) / 6
+                    + eta_next[5] * (samples[k]["price_t"]) / 12
+                    + eta_next[6] * (state["price_t"]) / 12
                     + eta_next[7] * model.vc_new / 3
                     + eta_next[8] * state["low_override_r1"]
                     + eta_next[9] * state["low_override_r2"])
@@ -279,7 +279,7 @@ def solve_forward_pass_milp(state, eta):
         "v":  int(value(model.v))
     }
 
-def forward_pass(eta, initial_state):
+def forward_pass(eta, initial_state): 
     states  = [[None] * L for _ in range(N)]
     actions = [[None] * L for _ in range(N)]
     costs   = [[0.0] * L for _ in range(N)]
@@ -304,7 +304,7 @@ def forward_pass(eta, initial_state):
 
     return states, actions, costs
 
-def backward_pass(states, actions, costs, eta):
+def backward_pass(states, actions, costs, eta): # policy evaluations (with fixed actions)
     n_features = len(phi(initial_state))
     K = 10
     alpha = 1.0
@@ -338,7 +338,7 @@ n_features = len(phi(initial_state))
 eta = np.ones((L, n_features))
 
 # Training loop
-N_iterations = 1000
+N_iterations = 100
 convergence_tol = 0.01
 best_eta = eta.copy()
 best_error = float("inf")
