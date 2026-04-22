@@ -153,10 +153,10 @@ def solve_forward_pass_fast(state, eta):
     if eta_next is None:
         p1, p2, v = 0, 0, 0
     else:
-        coeff_p1 = price + eta_next[0] * zeta_conv / 15
-        coeff_p2 = price + eta_next[1] * zeta_conv / 15
+        coeff_p1 = price + eta_next[0] * zeta_conv / 8
+        coeff_p2 = price + eta_next[1] * zeta_conv / 8
         coeff_v  = (price * P_vent
-                    - zeta_cool * (eta_next[0] / 15 + eta_next[1] / 15)
+                    - zeta_cool * (eta_next[0] / 8 + eta_next[1] / 8)
                     - eta_vent * eta_next[2] / 70
                     + eta_next[7] / 3)
 
@@ -261,8 +261,8 @@ def solve_forward_pass_milp(state, eta):
                     + eta_next[2] * (model.H_new[k] - 30) / 70
                     + eta_next[3] * (samples[k]["Occ1"] - 20) / 30
                     + eta_next[4] * (samples[k]["Occ2"] - 10) / 20
-                    + eta_next[5] * (samples[k]["price_t"] - 2) / 6
-                    + eta_next[6] * (state["price_t"] - 2) / 6
+                    + eta_next[5] * (samples[k]["price_t"]) / 12
+                    + eta_next[6] * (state["price_t"]) / 12
                     + eta_next[7] * model.vc_new / 3
                     + eta_next[8] * state["low_override_r1"]
                     + eta_next[9] * state["low_override_r2"])
@@ -338,7 +338,7 @@ n_features = len(phi(initial_state))
 eta = np.ones((L, n_features))
 
 # Training loop
-N_iterations = 1000
+N_iterations = 100
 convergence_tol = 0.01
 best_eta = eta.copy()
 best_error = float("inf")
