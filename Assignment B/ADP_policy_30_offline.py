@@ -7,7 +7,7 @@ from Utils.OccupancyProcessRestaurant import next_occupancy_levels
 from Utils.v2_SystemCharacteristics import get_fixed_data
 
 data = get_fixed_data()
-N               = 100
+N               = 1000
 L               = data['num_timeslots']
 P_max           = data['heating_max_power']
 zeta_exch       = data['heat_exchange_coeff']
