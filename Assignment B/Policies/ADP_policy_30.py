@@ -76,51 +76,43 @@ def generate_samples(state, B, N_samples):
     return clusters
 
 
-def value_function(model, scenario_idx, scenarios, current_state):
-    # Current time (t)
-    hour = current_state["current_time"]
-     
+def value_function(model, s_idx, scenarios, state):
+    """
+    Approximate next-state value:
+
+    V(s_{t+1}) = eta[t+1]^T phi(s_{t+1})
+
+    EXACTLY aligned with offline phi().
+    """
+
+    t = state["current_time"]
+    w = eta_weights[t + 1]
+
     # State variables for scenario s in time t+1
-    temp_r1_next      = model.temp_next[0, scenario_idx]
-    temp_r2_next      = model.temp_next[1, scenario_idx]
-    humidity_next     = model.humidity_next[scenario_idx]
-    occ_room_0_next   = scenarios[scenario_idx]["occ_room_0"]
-    occ_room_1_next   = scenarios[scenario_idx]["occ_room_1"]
-    price_next        = scenarios[scenario_idx]["price"]
-    prev_price_next   = current_state["price_t"]     # Price at time t (previous price in t+1)
-    vent_counter_next = model.vent_counter_next
-    overrule_r1_next  = model.overrule_next[0, scenario_idx]
-    overrule_r2_next  = model.overrule_next[1, scenario_idx]
+    T1_next    = model.temp_next[0, s_idx]
+    T2_next    = model.temp_next[1, s_idx]
+    H_next     = model.humidity_next[s_idx]
+    Occ1_next  = scenarios[s_idx]["occ_room_0"]
+    Occ2_next  = scenarios[s_idx]["occ_room_1"]
+    price_next = scenarios[s_idx]["price"]
+    vc_next    = model.vent_counter_next
+    lr1_next   = model.overrule_next[0, s_idx]
+    lr2_next   = model.overrule_next[1, s_idx]
     
-    # Create next state vector
-    next_state = np.array([temp_r1_next, 
-                          temp_r2_next, 
-                          humidity_next, 
-                          occ_room_0_next, 
-                          occ_room_1_next, 
-                          price_next, 
-                          prev_price_next, 
-                          vent_counter_next,  
-                          overrule_r1_next, 
-                          overrule_r2_next])
-
-    # Multiply future state with weights
-    value = sum(eta_weights[hour][i] * next_state[i] for i in range(len(next_state)))
-    
-    return value
+    return (
+        w[0] * 1.0
+        + w[1] * (T1_next - 22) / 8
+        + w[2] * (T2_next - 22) / 8
+        + w[3] * (H_next - 30) / 70
+        + w[4] * (Occ1_next - 20) / 30
+        + w[5] * (Occ2_next - 10) / 20
+        + w[6] * price_next / 12
+        + w[7] * vc_next / 3
+        + w[8] * lr1_next
+        + w[9] * lr2_next
+    )   
 
 
-    # "T1": temperature_room1,
-    # "T2": temperature_room2,
-    # "H": humidity,
-    # "Occ1": occupancy1_matrix[day][hour],
-    # "Occ2": occupancy2_matrix[day][hour],
-    # "price_t": price_matrix[day][hour],
-    # "price_previous": previous_price,
-    # "vent_counter": vent_counter,
-    # "low_override_r1": is_override_room1,
-    # "low_override_r2": is_override_room2,
-    # "current_time": hour
 
 def solve_MILP(state, scenarios):
     # State variables at time t
@@ -231,7 +223,7 @@ def solve_MILP(state, scenarios):
                                         eta_vent * model.v) if t < 9 else Constraint.Skip)
 
     # 20. Vent counter at t+1 for ALL scenarios
-    model.c20 = Constraint(rule = model.vent_counter_next == model.v * (current_vent_counter + model.v))
+    model.c20 = Constraint(rule = model.vent_counter_next == model.v * (current_vent_counter + 1))
 
     # 21-22. Detecting when Temperature is below threshold Tlow:
     model.c21 = Constraint(model.R, model.Scenarios, rule=lambda model, r, s: model.temp_next[r, s] <= T_low + M_temp * (1 - model.y_low_next[r, s]))
