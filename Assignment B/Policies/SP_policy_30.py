@@ -354,7 +354,7 @@ def select_action(state):
         nodes = build_tree(state, L=L, B=B, N_samples=100)
         p1, p2, v = solve_sp(state, nodes)
         end = time.time()
-        print(f"Total policy time: {end - start:.2f} s")
+        #print(f"Total policy time: {end - start:.2f} s")
         HereAndNowActions = {
             "HeatPowerRoom1": p1,
             "HeatPowerRoom2": p2,

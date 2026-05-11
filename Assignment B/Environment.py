@@ -1,6 +1,7 @@
 from Utils import v2_SystemCharacteristics, Checks
-#import SP_policy_30
-import ADP_policy_30
+import Policies.SP_policy_30
+import Policies.ADP_policy_30
+import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import warnings
@@ -292,40 +293,52 @@ def run_environment(policy, n_experiments=1, n_repetitions=1, plot=False):
     }
 
 
-if __name__ == "__main__": # executes the following block only if this file is run directly (not imported as a module)
-    data = v2_SystemCharacteristics.get_fixed_data()
-    price_data = np.genfromtxt("Data/v2_PriceData.csv", delimiter=",", skip_header=1)
-    price_matrix = price_data[:, 1:] 
+if __name__ == "__main__":
+    data         = v2_SystemCharacteristics.get_fixed_data()
+    price_data   = np.genfromtxt("Data/v2_PriceData.csv", delimiter=",", skip_header=1)
+    price_matrix = price_data[:, 1:]
+
     results = run_environment(
-        ADP_policy_30v2, # policy currently under evaluation
-        n_experiments=2, # number of days to simulate
-        n_repetitions=2, # number of repetitions of the whole set of experiments
-        plot=True # include plots for each experiment (day)
+        Policies.ADP_policy_30,
+        n_experiments=100,
+        n_repetitions=1,
+        plot=False
     )
-    # Print hourly costs for day 1, rep 1
-    log = results["logs"][0]["log"]
-    print("Day 1 - Hourly costs:")
-    total = 0
-    for h in range(len(log["hour"])):
-        cost = price_matrix[0][h] * (log["V"][h] * data["ventilation_power"] + log["P1"][h] + log["P2"][h])
-        total += cost
-        print(f"  Hour {h}: {cost:.2f}")
-    print(f"  Total: {total:.2f}")
-    all_objectives  = np.array(results["objectives"]) 
-    mean_objectives = np.mean(all_objectives, axis=0)
-    std_objectives  = np.std(all_objectives, axis=0)
 
-    data = get_fixed_data()
-    T_out = data['outdoor_temperature']  
+    # Build a list of rows: one row per (day, hour)
+    all_rows = []
+    for entry in results["logs"]:
+        day = entry["day"]
+        log = entry["log"]
+        daily_total = 0
 
-    t = 5
-    print(T_out[t])
+        for h in range(len(log["hour"])):
+            hourly_cost = price_matrix[day][h] * (
+                log["V"][h] * data["ventilation_power"] +
+                log["P1"][h] +
+                log["P2"][h]
+            )
+            daily_total += hourly_cost
+            all_rows.append({
+                "day":          day + 1,
+                "hour":         h,
+                "cost":         round(hourly_cost, 4),
+                "P1":           round(log["P1"][h], 4),
+                "P2":           round(log["P2"][h], 4),
+                "V":            log["V"][h],
+                "T1":           round(log["T1"][h], 4),
+                "T2":           round(log["T2"][h], 4),
+                "H":            round(log["H"][h], 4),
+                "price":        round(price_matrix[day][h], 4),
+                "daily_total":  round(daily_total, 4)  # cumulative within the day
+            })
 
-    # plt.figure(figsize=(10, 5))
-    # plt.errorbar(range(1, len(mean_objectives) + 1), mean_objectives, yerr=std_objectives, fmt='-o', capsize=5)
-    # plt.title('Objective Value Across Experiments')
-    # plt.xlabel('Experimento')
-    # plt.ylabel('Objective Value')
-    # plt.grid(True)
-    # plt.tight_layout()
-    # plt.show()
+    # Save to CSV
+    results_df = pd.DataFrame(all_rows)
+    results_df.to_csv("results/ADP_hourly_costs.csv", index=False)
+    print("Saved to results/ADP_hourly_costs.csv")
+
+    # Print average daily cost
+    daily_costs = results_df.groupby("day")["cost"].sum()
+    print(f"Average daily cost over 100 days: {daily_costs.mean():.2f}")
+    print(f"Std daily cost:                   {daily_costs.std():.2f}")

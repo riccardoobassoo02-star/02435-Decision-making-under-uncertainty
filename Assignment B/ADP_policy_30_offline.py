@@ -41,15 +41,26 @@ initial_state = {
     'price_previous' : data['price_previous']
 }
 
+# phi index map (10 features):
+#   0  intercept
+#   1  (T1  - 22) / 8
+#   2  (T2  - 22) / 8
+#   3  (H   - 30) / 70
+#   4  (Occ1 - 20) / 30
+#   5  (Occ2 - 10) / 20
+#   6  price_t / 12
+#   7  vent_counter / 3
+#   8  low_override_r1
+#   9  low_override_r2
 def phi(state):
     return np.array([
+        1.0,
         (state["T1"] - 22) / 8,
         (state["T2"] - 22) / 8,
         (state["H"] - 30) / 70,
-        (state["Occ1"] - 20) / 30,    
-        (state["Occ2"] - 10) / 20,    
+        (state["Occ1"] - 20) / 30,
+        (state["Occ2"] - 10) / 20,
         state["price_t"] / 12,
-        state["price_previous"] / 12,
         state["vent_counter"] / 3,
         state["low_override_r1"],
         state["low_override_r2"]
@@ -145,7 +156,7 @@ def compute_cost(state, action):
     return price * (p1 + p2 + P_vent * v)
 
 def solve_forward_pass_fast(state, eta):
-    """solution with algebra"""
+    """Closed-form greedy action: minimise immediate cost + linear VFA of next state."""
     t = state["current_time"]
     eta_next = eta[t + 1] if t < (L - 1) else None
     price = state["price_t"]
@@ -153,11 +164,11 @@ def solve_forward_pass_fast(state, eta):
     if eta_next is None:
         p1, p2, v = 0, 0, 0
     else:
-        coeff_p1 = price + eta_next[0] * zeta_conv / 8
-        coeff_p2 = price + eta_next[1] * zeta_conv / 8
+        coeff_p1 = price + eta_next[1] * zeta_conv / 8
+        coeff_p2 = price + eta_next[2] * zeta_conv / 8
         coeff_v  = (price * P_vent
-                    - zeta_cool * (eta_next[0] / 8 + eta_next[1] / 8)
-                    - eta_vent * eta_next[2] / 70
+                    - zeta_cool * (eta_next[1] / 8 + eta_next[2] / 8)
+                    - eta_vent  * eta_next[3] / 70
                     + eta_next[7] / 3)
 
         p1 = 0 if coeff_p1 > 0 else P_max
@@ -181,14 +192,10 @@ def solve_forward_pass_fast(state, eta):
     if state["H"] > H_high:
         v = 1
 
-    return {
-        "p1": p1,
-        "p2": p2,
-        "v":  v
-    }
+    return {"p1": p1, "p2": p2, "v": v}
 
 def solve_forward_pass_milp(state, eta):
-    """solution with pyomo,too slow"""
+    """MILP-based action selection using sampled future scenarios (slow, kept for reference)."""
     model = ConcreteModel()
     t = state["current_time"]
     eta_next = eta[t + 1] if t < (L - 1) else None
@@ -256,13 +263,13 @@ def solve_forward_pass_milp(state, eta):
     else:
         future_cost = 0
         for k in range(K):
-            vfa_k = (eta_next[0] * (model.T1_new[k] - 22) / 8
-                    + eta_next[1] * (model.T2_new[k] - 22) / 8
-                    + eta_next[2] * (model.H_new[k] - 30) / 70
-                    + eta_next[3] * (samples[k]["Occ1"] - 20) / 30
-                    + eta_next[4] * (samples[k]["Occ2"] - 10) / 20
-                    + eta_next[5] * (samples[k]["price_t"]) / 12
-                    + eta_next[6] * (state["price_t"]) / 12
+            vfa_k = (eta_next[0]
+                    + eta_next[1] * (model.T1_new[k] - 22) / 8
+                    + eta_next[2] * (model.T2_new[k] - 22) / 8
+                    + eta_next[3] * (model.H_new[k] - 30) / 70
+                    + eta_next[4] * (samples[k]["Occ1"] - 20) / 30
+                    + eta_next[5] * (samples[k]["Occ2"] - 10) / 20
+                    + eta_next[6] * samples[k]["price_t"] / 12
                     + eta_next[7] * model.vc_new / 3
                     + eta_next[8] * state["low_override_r1"]
                     + eta_next[9] * state["low_override_r2"])
@@ -279,7 +286,7 @@ def solve_forward_pass_milp(state, eta):
         "v":  int(value(model.v))
     }
 
-def forward_pass(eta, initial_state): 
+def forward_pass(eta, initial_state):
     states  = [[None] * L for _ in range(N)]
     actions = [[None] * L for _ in range(N)]
     costs   = [[0.0] * L for _ in range(N)]
@@ -294,6 +301,7 @@ def forward_pass(eta, initial_state):
         for t in range(L):
             states[n][t] = state.copy()
             action = solve_forward_pass_fast(state, eta)
+            action = apply_overrule(state, action)
             cost = compute_cost(state, action)
             actions[n][t] = action
             costs[n][t] = cost
@@ -304,10 +312,13 @@ def forward_pass(eta, initial_state):
 
     return states, actions, costs
 
-def backward_pass(states, actions, costs, eta): # policy evaluations (with fixed actions)
+def backward_pass(states, actions, costs, eta):
+    """Policy evaluation via fitted backward induction."""
     n_features = len(phi(initial_state))
     K = 10
-    alpha = 1.0
+    alpha = 0.5
+
+    eta_new = eta.copy()
 
     for t in reversed(range(L)):
         targets  = np.zeros(N)
@@ -324,32 +335,50 @@ def backward_pass(states, actions, costs, eta): # policy evaluations (with fixed
                 samples = [generate_exogenous(states[n][t]) for _ in range(K)]
                 for k in range(K):
                     s_next = simulate_transition(states[n][t], actions[n][t], samples[k])
-                    future_cost += (1.0 / K) * (eta[t + 1] @ phi(s_next))
+                    future_cost += (1.0 / K) * (eta_new[t + 1] @ phi(s_next))
                 targets[n] = r + future_cost
 
         A = features.T @ features + alpha * np.eye(n_features)
         b = features.T @ targets
-        eta[t] = np.linalg.solve(A, b)
+        eta_new[t] = np.linalg.solve(A, b)
 
-    return eta
+    return eta_new
 
-# Initialize eta
+# ── Initialise eta ─────────────────────────────────────────────────────────────
 n_features = len(phi(initial_state))
-eta = np.ones((L, n_features))
+eta = np.zeros((L, n_features))
 
-# Training loop
-N_iterations = 100
+# ── Training loop ──────────────────────────────────────────────────────────────
+N_iterations    = 100
 convergence_tol = 0.01
-best_eta = eta.copy()
-best_error = float("inf")
+best_eta        = eta.copy()
+best_error      = float("inf")
 
 for i in range(N_iterations):
     print(f"Iteration {i}")
     states, actions, costs = forward_pass(eta, initial_state)
-    eta = backward_pass(states, actions, costs, eta)
+    eta_new = backward_pass(states, actions, costs, eta)
 
-    total_error = 0
+    # ── FIX A: decaying step size ──────────────────────────────────────────────
+    # A fixed beta=0.9 causes the algorithm to overshoot every iteration:
+    # the new eta suggests different actions → different trajectories →
+    # different new eta → stable oscillation.
+    # The harmonic schedule beta = 1/(i+2) satisfies the Robbins-Monro
+    # convergence conditions for stochastic approximation:
+    #   i=0  →  beta=0.50  (large initial correction)
+    #   i=4  →  beta=0.17  (moderate updates)
+    #   i=9  →  beta=0.09  (fine-tuning)
+    beta = 1.0 / (i + 2)
+    eta  = (1 - beta) * eta + beta * eta_new
+
+    # ── FIX B: consistent error metric ────────────────────────────────────────
+    # The error loop now uses eta_new (before blending) for both targets and
+    # predictions.  This measures the residual of the backward pass regression
+    # directly, giving a clean and comparable number across iterations.
+    # Previously the blended eta was used, which mixed in the old estimate and
+    # made the reported error noisy and inconsistent with the actual fit.
     K = 10
+    total_error = 0
     for t in range(L):
         for n in range(N):
             r = costs[n][t]
@@ -360,28 +389,31 @@ for i in range(N_iterations):
                 samples = [generate_exogenous(states[n][t]) for _ in range(K)]
                 for k in range(K):
                     s_next = simulate_transition(states[n][t], actions[n][t], samples[k])
-                    future_cost += (1.0 / K) * (eta[t + 1] @ phi(s_next))
+                    future_cost += (1.0 / K) * (eta_new[t + 1] @ phi(s_next))
                 target = r + future_cost
-            prediction = eta[t] @ phi(states[n][t])
-            total_error += (prediction - target)**2
+            prediction = eta_new[t] @ phi(states[n][t])
+            total_error += (prediction - target) ** 2
 
     avg_error = total_error / (L * N)
-    print(f"  avg fit error: {avg_error:.4f}")
+    print(f"  avg fit error: {avg_error:.4f}  (beta={beta:.3f})")
 
     if avg_error < best_error:
         best_error = avg_error
-        best_eta = eta.copy()
+        best_eta   = eta.copy()
 
-    if avg_error < convergence_tol: # but never comes to 0
-        print(f"Converged after {i+1} iterations")
+    if avg_error < convergence_tol:
+        print(f"Converged after {i + 1} iterations")
         break
 
 eta = best_eta
 
-# Save weights
+# ── Save weights ───────────────────────────────────────────────────────────────
 np.save("eta_weights.npy", eta)
 
-feature_names = ["T1", "T2", "H", "Occ1", "Occ2", "price_t", "price_previous", "vent_counter", "low_override_r1", "low_override_r2"]
+feature_names = [
+    "Intercept", "T1", "T2", "H", "Occ1", "Occ2",
+    "price_t", "vent_counter", "low_override_r1", "low_override_r2"
+]
 df = pd.DataFrame(eta, columns=feature_names, index=[f"stage_{t}" for t in range(L)])
 df.to_csv("eta_weights.csv")
 print(df)
