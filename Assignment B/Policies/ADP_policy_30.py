@@ -169,7 +169,7 @@ def solve_MILP(state, scenarios):
 
 
     # Objective function
-    if True:#t == 9:  # Only inmediate reward (there's no future)
+    if t == 9:  # Only inmediate reward (there's no future)
         model.obj = Objective(rule = current_price * (
             P_vent * model.v
             + model.p[0]
@@ -279,7 +279,7 @@ def solve_MILP(state, scenarios):
 def select_action(state):
     start_time = time.time()
 
-    scenarios = generate_samples(state, B=5, N_samples=1_000)
+    scenarios = generate_samples(state, B=100, N_samples=1_000)
     p1, p2, v = solve_MILP(state, scenarios)
 
     # print(f"Total policy time: {time.time() - start_time:.2f} s")

@@ -1,5 +1,5 @@
 from Utils import v2_SystemCharacteristics, Checks
-from Policies import SP_policy_30, SP_policy_30_v2
+from Policies import SP_policy_30, ADP_policy_30
 import numpy as np
 import matplotlib.pyplot as plt
 import warnings
@@ -174,8 +174,8 @@ def run_single_experiment(_):
 
 # Choose number of experiments and repetitions
 N_EXPERIMENTS = 100
-N_REPETITIONS = 4 
-POLICY = SP_policy_30_v2
+N_REPETITIONS = 4
+POLICY = ADP_policy_30 #SP_policy_30_v2
 
 if __name__ == "__main__": # executes the following block only if this file is run directly (not imported as a module)
     print("Running policy: ", POLICY.__name__)

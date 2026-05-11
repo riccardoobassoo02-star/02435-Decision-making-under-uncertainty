@@ -1,6 +1,5 @@
 from Utils import v2_SystemCharacteristics, Checks
-#import SP_policy_30
-import ADP_policy_30v2
+from Policies import SP_policy_30, ADP_policy_30
 import numpy as np
 import matplotlib.pyplot as plt
 import warnings
@@ -182,6 +181,7 @@ def run_environment(policy, n_experiments=1, n_repetitions=1, plot=False):
 
         # Simulation
         for day in range(0, n_experiments): 
+            print(f"Day {day}")
             vent_counter = 0           # consectutive ventilation tracker has to be reset at the beggining of each day (false=OFF, true=ON)
             is_override_room1 = False  # overrule controllers state also has to be reset at the beggining of each day (false=OFF, true=ON)
             is_override_room2 = False
@@ -198,7 +198,7 @@ def run_environment(policy, n_experiments=1, n_repetitions=1, plot=False):
             }
 
             for hour in range(0, NUM_TIMESLOTS):
-                #print("Hour: ", hour)
+                print(f"Hour {hour}")
                 if hour == 0:
                     previous_price    = initial_previous_prices[day]
                     temperature_room1 = data["T1"]
@@ -297,23 +297,17 @@ if __name__ == "__main__": # executes the following block only if this file is r
     price_data = np.genfromtxt("Data/v2_PriceData.csv", delimiter=",", skip_header=1)
     price_matrix = price_data[:, 1:] 
     results = run_environment(
-        ADP_policy_30v2, # policy currently under evaluation
-        n_experiments=2, # number of days to simulate
-        n_repetitions=2, # number of repetitions of the whole set of experiments
-        plot=True # include plots for each experiment (day)
+        ADP_policy_30, # policy currently under evaluation
+        n_experiments=100, # number of days to simulate
+        n_repetitions=3, # number of repetitions of the whole set of experiments
+        plot=False # include plots for each experiment (day)
     )
-    # Print hourly costs for day 1, rep 1
-    log = results["logs"][0]["log"]
-    print("Day 1 - Hourly costs:")
-    total = 0
-    for h in range(len(log["hour"])):
-        cost = price_matrix[0][h] * (log["V"][h] * data["ventilation_power"] + log["P1"][h] + log["P2"][h])
-        total += cost
-        print(f"  Hour {h}: {cost:.2f}")
-    print(f"  Total: {total:.2f}")
+
     all_objectives  = np.array(results["objectives"]) 
     mean_objectives = np.mean(all_objectives, axis=0)
     std_objectives  = np.std(all_objectives, axis=0)
+
+    print(mean_objectives)
 
     data = get_fixed_data()
     T_out = data['outdoor_temperature']  
