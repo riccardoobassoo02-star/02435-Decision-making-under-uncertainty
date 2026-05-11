@@ -28,13 +28,13 @@ H_high      = data['humidity_threshold']
 eta_occ     = data['humidity_occupancy_coeff']
 eta_vent    = data['humidity_vent_coeff']
 min_up_time = data['vent_min_up_time']
-U_vent      = data["vent_min_up_time"] # 3 hours
-L           = data["num_timeslots"] # 10 hours
+U_vent      = data["vent_min_up_time"]            # 3 hours
+L           = data["num_timeslots"]               # 10 hours
 
 
 
-M_temp = 50  # big-M constant for temperature ()
-M_hum = 100   # big-M constant for humidity
+M_temp = 50   # big-M constant for temperature ()
+M_hum  = 100  # big-M constant for humidity
 
 
 eta_weights = np.load("eta_weights.npy")
@@ -294,114 +294,3 @@ def select_action(state):
 
 
 
-
-# RICKY's code
-        # if 0 < vent_counter < min_up_time:
-    #     model.v.fix(1)
-
-    # if state["low_override_r1"] and state["T1"] < T_ok:
-    #     model.p[0].fix(P_max)
-    # if state["T1"] >= T_high:
-    #     model.p[0].fix(0)
-
-    # if state["low_override_r2"] and state["T2"] < T_ok:
-    #     model.p[1].fix(P_max)
-
-    # if state["T2"] >= T_high:
-    #     model.p[1].fix(0)
-
-    # if state["H"] > H_high:
-    #     model.v.fix(1)
-
-
-
-# FIRST TRY - NOT WORKING
-# def calculate_room_temperature(P, occupancy, prev_temperature, other_room_prev_temp, V, outside_temperature):
-#     """Calculate the new temperature of a room based on the previous temperature, the heating power, occupancy, 
-#     ventilation, and outdoor temperature.
-#     Inputs:
-#     - P: heating power applied to the room (here-and-now decision p1 or p2)
-#     - occupancy: number of people in the room
-#     - prev_temperature: previous temperature of the room
-#     - other_room_prev_temp: previous temperature of the other room
-#     - data: system characteristics dictionary
-#     - V: ventilation system status (here-and-now decision v)
-#     - outside_temperature: current outdoor temperature
-#     """
-#     return (
-#         prev_temperature + 
-#         zeta_exch * (other_room_prev_temp - prev_temperature) -
-#         zeta_loss * (prev_temperature - outside_temperature) +
-#         zeta_conv * P - 
-#         zeta_cool * V + 
-#         zeta_occ * occupancy
-#     )
-
-# def calculate_humidity(prev_humidity, occupancy1, occupancy2, V):
-#     """Calculate the new humidity of a room based on the previous humidity, occupancy, and ventilation.
-#     Inputs:
-#     - prev_humidity: previous humidity of the room
-#     - occupancy1: number of people in room 1
-#     - occupancy2: number of people in room 2
-#     - V: ventilation system status (here-and-now decision v)
-#     """
-#     return (prev_humidity +
-#             eta_occ * (occupancy1 + occupancy2) -
-#             eta_vent * V
-#     )
-
-# def update_overrule_controler_state(overrule_state, temperature):
-#     return (
-#         (overrule_state or temperature < T_low)
-#         and
-#         not (overrule_state and temperature > T_ok)
-#     )
-
-
-# def value_function(model, scenario, state):
-#     # Variables from time t
-#     hour = state["current_time"]
-#     t1 = state["T1"]
-#     t2 = state["T2"]
-#     H  = state["H"]
-#     new_price_previous = state["price_t"] # price in t = previous price in t+1
-#     outside_temperature = T_out[hour]
-#     vent_counter = state["vent_counter"]
-#     low_override_r1 = state["low_override_r1"]
-#     low_override_r2 = state["low_override_r2"]
-
-#     # Simulated variables for time t+1
-#     new_occupancy1 = scenario["occ1"]
-#     new_occupancy2 = scenario["occ2"]
-#     new_price = scenario["price"]
-
-#     # Tempreature dynamics for t+1 depending on decisions for t: v and p
-#     new_t1 = calculate_room_temperature(model.p[0], new_occupancy1, t1, t2, model.v, outside_temperature)
-#     new_t2 = calculate_room_temperature(model.p[1], new_occupancy2, t2, t1, model.v, outside_temperature)
-
-#     # Humidity dynamics for t+1 depending on decisions for t: v
-#     new_H = calculate_humidity(H, new_occupancy1, new_occupancy2, model.v)
-
-#     # Update vent_counter
-#     new_vent_counter = vent_counter + model.v
-   
-#     # Update overrule controlers
-#     new_low_override_r1 = update_overrule_controler_state(low_override_r1, new_t1)
-#     new_low_override_r2 = update_overrule_controler_state(low_override_r2, new_t2)
-
-
-#     new_state = np.array([new_t1, 
-#                           new_t2, 
-#                           new_H, 
-#                           new_occupancy1, 
-#                           new_occupancy2, 
-#                           new_price, 
-#                           new_price_previous, 
-#                           new_vent_counter,  
-#                           new_low_override_r1, 
-#                           new_low_override_r2])
-
-    
-#     value = sum(eta_weights[hour][i] * new_state[i] for i in range(len(new_state)))
-    
-#     return value
