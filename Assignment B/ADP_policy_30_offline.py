@@ -41,29 +41,21 @@ initial_state = {
     'price_previous' : data['price_previous']
 }
 
-# phi index map (10 features):
-#   0  intercept
-#   1  (T1  - 22) / 8
-#   2  (T2  - 22) / 8
-#   3  (H   - 30) / 70
-#   4  (Occ1 - 20) / 30
-#   5  (Occ2 - 10) / 20
-#   6  price_t / 12
-#   7  vent_counter / 3
-#   8  low_override_r1
-#   9  low_override_r2
 def phi(state):
+    # 10-feature linear VFA basis.
+    # price_previous is dropped: the price process is Markovian, only price_t matters.
+    # An intercept is added in its place to absorb the constant component of the VFA.
     return np.array([
-        1.0,
-        (state["T1"] - 22) / 8,
-        (state["T2"] - 22) / 8,
-        (state["H"] - 30) / 70,
-        (state["Occ1"] - 20) / 30,
-        (state["Occ2"] - 10) / 20,
-        state["price_t"] / 12,
-        state["vent_counter"] / 3,
-        state["low_override_r1"],
-        state["low_override_r2"]
+        1.0,                              # 0: intercept
+        (state["T1"] - 22) / 8,           # 1: T1
+        (state["T2"] - 22) / 8,           # 2: T2
+        (state["H"]  - 30) / 70,          # 3: H
+        (state["Occ1"] - 20) / 30,        # 4: Occ1
+        (state["Occ2"] - 10) / 20,        # 5: Occ2
+        state["price_t"] / 12,            # 6: price_t
+        state["vent_counter"] / 3,        # 7: vent_counter
+        state["low_override_r1"],         # 8: low_override_r1
+        state["low_override_r2"]          # 9: low_override_r2
     ])
 
 def generate_exogenous(state):
@@ -156,25 +148,34 @@ def compute_cost(state, action):
     return price * (p1 + p2 + P_vent * v)
 
 def solve_forward_pass_fast(state, eta):
-    """Closed-form greedy action: minimise immediate cost + linear VFA of next state."""
+    """Analytical greedy action minimizing immediate_cost + eta_{t+1}^T phi(s_{t+1}).
+    Used by BOTH forward and backward passes (so that the backward target
+    is computed under the optimal action, i.e. a true Bellman backup)."""
     t = state["current_time"]
     eta_next = eta[t + 1] if t < (L - 1) else None
     price = state["price_t"]
 
     if eta_next is None:
+        # Terminal stage: no successor VFA, so pure immediate-cost minimization -> all off
         p1, p2, v = 0, 0, 0
     else:
+        # Marginal coefficient of each action variable on (immediate cost + future VFA).
+        # Indices reflect the new phi: T1=1, T2=2, H=3, vent_counter=7.
         coeff_p1 = price + eta_next[1] * zeta_conv / 8
         coeff_p2 = price + eta_next[2] * zeta_conv / 8
+        # vent_counter_{t+1} = (vc + 1) * v (discontinuous in v), so the v->1 effect
+        # through the vent_counter feature is eta_next[7] * (vc + 1) / 3, not eta_next[7] / 3.
+        vc_term = eta_next[7] * (state["vent_counter"] + 1) / 3
         coeff_v  = (price * P_vent
                     - zeta_cool * (eta_next[1] / 8 + eta_next[2] / 8)
-                    - eta_vent  * eta_next[3] / 70
-                    + eta_next[7] / 3)
+                    - eta_vent * eta_next[3] / 70
+                    + vc_term)
 
         p1 = 0 if coeff_p1 > 0 else P_max
         p2 = 0 if coeff_p2 > 0 else P_max
         v  = 0 if coeff_v  > 0 else 1
 
+    # Hard overrule constraints (must hold regardless of the unconstrained optimum)
     vc = state["vent_counter"]
     if 0 < vc < min_up_time:
         v = 1
@@ -194,105 +195,16 @@ def solve_forward_pass_fast(state, eta):
 
     return {"p1": p1, "p2": p2, "v": v}
 
-def solve_forward_pass_milp(state, eta):
-    """MILP-based action selection using sampled future scenarios (slow, kept for reference)."""
-    model = ConcreteModel()
-    t = state["current_time"]
-    eta_next = eta[t + 1] if t < (L - 1) else None
-
-    K = 10
-    samples = [generate_exogenous(state) for _ in range(K)]
-    p_k = 1.0 / K
-
-    model.p1 = Var(within=NonNegativeReals, bounds=(0, P_max))
-    model.p2 = Var(within=NonNegativeReals, bounds=(0, P_max))
-    model.v  = Var(within=Binary)
-
-    model.K      = RangeSet(0, K - 1)
-    model.T1_new = Var(model.K)
-    model.T2_new = Var(model.K)
-    model.H_new  = Var(model.K)
-    model.vc_new = Var(within=NonNegativeReals)
-
-    vent_counter = state["vent_counter"]
-    if 0 < vent_counter < min_up_time:
-        model.v.fix(1)
-
-    if state["low_override_r1"] and state["T1"] < T_ok:
-        model.p1.fix(P_max)
-    if state["T1"] >= T_high:
-        model.p1.fix(0)
-
-    if state["low_override_r2"] and state["T2"] < T_ok:
-        model.p2.fix(P_max)
-    if state["T2"] >= T_high:
-        model.p2.fix(0)
-
-    if state["H"] > H_high:
-        model.v.fix(1)
-
-    model.dyn_T1 = Constraint(model.K, rule=lambda model, k:
-        model.T1_new[k] == state["T1"]
-        + zeta_conv * model.p1
-        + zeta_exch * (state["T2"] - state["T1"])
-        + zeta_loss * (T_out[t] - state["T1"])
-        + zeta_occ * samples[k]["Occ1"]
-        - zeta_cool * model.v)
-
-    model.dyn_T2 = Constraint(model.K, rule=lambda model, k:
-        model.T2_new[k] == state["T2"]
-        + zeta_conv * model.p2
-        + zeta_exch * (state["T1"] - state["T2"])
-        + zeta_loss * (T_out[t] - state["T2"])
-        + zeta_occ * samples[k]["Occ2"]
-        - zeta_cool * model.v)
-
-    model.dyn_H = Constraint(model.K, rule=lambda model, k:
-        model.H_new[k] == state["H"]
-        + eta_occ * (samples[k]["Occ1"] + samples[k]["Occ2"])
-        - eta_vent * model.v)
-
-    model.dyn_vc = Constraint(expr=
-        model.vc_new == state["vent_counter"] + model.v)
-
-    price = state["price_t"]
-    immediate_cost = price * (model.p1 + model.p2 + P_vent * model.v)
-
-    if eta_next is None:
-        model.obj = Objective(expr=immediate_cost, sense=minimize)
-    else:
-        future_cost = 0
-        for k in range(K):
-            vfa_k = (eta_next[0]
-                    + eta_next[1] * (model.T1_new[k] - 22) / 8
-                    + eta_next[2] * (model.T2_new[k] - 22) / 8
-                    + eta_next[3] * (model.H_new[k] - 30) / 70
-                    + eta_next[4] * (samples[k]["Occ1"] - 20) / 30
-                    + eta_next[5] * (samples[k]["Occ2"] - 10) / 20
-                    + eta_next[6] * samples[k]["price_t"] / 12
-                    + eta_next[7] * model.vc_new / 3
-                    + eta_next[8] * state["low_override_r1"]
-                    + eta_next[9] * state["low_override_r2"])
-            future_cost += p_k * vfa_k
-        model.obj = Objective(expr=immediate_cost + future_cost, sense=minimize)
-
-    solver = SolverFactory("gurobi")
-    solver.options["OutputFlag"] = 0
-    solver.solve(model)
-
-    return {
-        "p1": value(model.p1),
-        "p2": value(model.p2),
-        "v":  int(value(model.v))
-    }
-
 def forward_pass(eta, initial_state):
+    """Roll out N trajectories under the greedy policy w.r.t. the current VFA.
+    Returns visited states (needed by the backward pass) plus actions/costs (for monitoring only)."""
     states  = [[None] * L for _ in range(N)]
     actions = [[None] * L for _ in range(N)]
     costs   = [[0.0] * L for _ in range(N)]
 
     for n in range(N):
         state = initial_state.copy()
+        # Randomize initial exogenous so the visited-state distribution is diverse
         state["Occ1"]           = np.random.uniform(25, 35)
         state["Occ2"]           = np.random.uniform(15, 25)
         state["price_t"]        = np.random.uniform(2, 8)
@@ -301,10 +213,8 @@ def forward_pass(eta, initial_state):
         for t in range(L):
             states[n][t] = state.copy()
             action = solve_forward_pass_fast(state, eta)
-            action = apply_overrule(state, action)
-            cost = compute_cost(state, action)
             actions[n][t] = action
-            costs[n][t] = cost
+            costs[n][t] = compute_cost(state, action)
 
             if t < L - 1:
                 exogenous = generate_exogenous(state)
@@ -312,108 +222,91 @@ def forward_pass(eta, initial_state):
 
     return states, actions, costs
 
-def backward_pass(states, actions, costs, eta):
-    """Policy evaluation via fitted backward induction."""
+def backward_pass(states, eta):
+    """Approximate backward induction (Bellman backup, NOT policy evaluation).
+
+    For each visited state s_{n,t}, the target V*(s_{n,t}) is obtained by
+    RE-SOLVING the Bellman equation under the already-updated eta_{t+1}:
+
+        V*(s_{n,t}) = min_u  c(s_{n,t}, u) + E_w[ eta_{t+1} . phi(f(s_{n,t}, u, w)) ]
+
+    The minimization over u is done analytically by solve_forward_pass_fast,
+    and the expectation is approximated with K Monte-Carlo exogenous samples.
+    Then eta_t is fit by ridge regression on (phi(s_{n,t}), V*(s_{n,t})) pairs.
+
+    Key fix vs. the previous version: the action used here is the optimum
+    under the CURRENT VFA, not the action stored from the forward pass."""
     n_features = len(phi(initial_state))
     K = 10
-    alpha = 0.5
-
-    eta_new = eta.copy()
+    alpha = 1.0
 
     for t in reversed(range(L)):
         targets  = np.zeros(N)
         features = np.zeros((N, n_features))
 
         for n in range(N):
-            features[n] = phi(states[n][t])
-            r = costs[n][t]
+            s_t = states[n][t]
+            features[n] = phi(s_t)
+
+            # Re-solve Bellman at this state under the current VFA
+            a_opt = solve_forward_pass_fast(s_t, eta)
+            r = compute_cost(s_t, a_opt)
 
             if t == L - 1:
                 targets[n] = r
             else:
-                future_cost = 0
-                samples = [generate_exogenous(states[n][t]) for _ in range(K)]
-                for k in range(K):
-                    s_next = simulate_transition(states[n][t], actions[n][t], samples[k])
-                    future_cost += (1.0 / K) * (eta_new[t + 1] @ phi(s_next))
+                # Monte-Carlo estimate of the expected next-stage VFA
+                future_cost = 0.0
+                for _ in range(K):
+                    w = generate_exogenous(s_t)
+                    s_next = simulate_transition(s_t, a_opt, w)
+                    future_cost += (eta[t + 1] @ phi(s_next)) / K
                 targets[n] = r + future_cost
 
+        # Ridge regression: (X'X + alpha*I) eta_t = X'y
         A = features.T @ features + alpha * np.eye(n_features)
         b = features.T @ targets
-        eta_new[t] = np.linalg.solve(A, b)
+        eta[t] = np.linalg.solve(A, b)
 
-    return eta_new
+    return eta
 
-# ── Initialise eta ─────────────────────────────────────────────────────────────
+# === Training loop ===
 n_features = len(phi(initial_state))
-eta = np.zeros((L, n_features))
+eta = np.ones((L, n_features))
 
-# ── Training loop ──────────────────────────────────────────────────────────────
 N_iterations    = 100
-convergence_tol = 0.01
+convergence_tol = 1e-3
 best_eta        = eta.copy()
-best_error      = float("inf")
+best_cost       = float("inf")
 
 for i in range(N_iterations):
-    print(f"Iteration {i}")
-    states, actions, costs = forward_pass(eta, initial_state)
-    eta_new = backward_pass(states, actions, costs, eta)
+    eta_old = eta.copy()
 
-    # ── FIX A: decaying step size ──────────────────────────────────────────────
-    # A fixed beta=0.9 causes the algorithm to overshoot every iteration:
-    # the new eta suggests different actions → different trajectories →
-    # different new eta → stable oscillation.
-    # The harmonic schedule beta = 1/(i+2) satisfies the Robbins-Monro
-    # convergence conditions for stochastic approximation:
-    #   i=0  →  beta=0.50  (large initial correction)
-    #   i=4  →  beta=0.17  (moderate updates)
-    #   i=9  →  beta=0.09  (fine-tuning)
-    beta = 1.0 / (i + 2)
-    eta  = (1 - beta) * eta + beta * eta_new
+    states, _, costs = forward_pass(eta, initial_state)
+    eta = backward_pass(states, eta)
 
-    # ── FIX B: consistent error metric ────────────────────────────────────────
-    # The error loop now uses eta_new (before blending) for both targets and
-    # predictions.  This measures the residual of the backward pass regression
-    # directly, giving a clean and comparable number across iterations.
-    # Previously the blended eta was used, which mixed in the old estimate and
-    # made the reported error noisy and inconsistent with the actual fit.
-    K = 10
-    total_error = 0
-    for t in range(L):
-        for n in range(N):
-            r = costs[n][t]
-            if t == L - 1:
-                target = r
-            else:
-                future_cost = 0
-                samples = [generate_exogenous(states[n][t]) for _ in range(K)]
-                for k in range(K):
-                    s_next = simulate_transition(states[n][t], actions[n][t], samples[k])
-                    future_cost += (1.0 / K) * (eta_new[t + 1] @ phi(s_next))
-                target = r + future_cost
-            prediction = eta_new[t] @ phi(states[n][t])
-            total_error += (prediction - target) ** 2
+    # Monitor convergence with two cheap signals:
+    #  - avg cumulative cost over the N rollouts (policy quality)
+    #  - relative change of eta (parameter convergence)
+    avg_total_cost = np.mean([sum(costs[n]) for n in range(N)])
+    eta_delta      = np.linalg.norm(eta - eta_old) / (np.linalg.norm(eta_old) + 1e-9)
+    print(f"Iter {i:3d} | avg cost = {avg_total_cost:10.2f} | ||delta eta|| = {eta_delta:.4f}")
 
-    avg_error = total_error / (L * N)
-    print(f"  avg fit error: {avg_error:.4f}  (beta={beta:.3f})")
+    if avg_total_cost < best_cost:
+        best_cost = avg_total_cost
+        best_eta  = eta.copy()
 
-    if avg_error < best_error:
-        best_error = avg_error
-        best_eta   = eta.copy()
-
-    if avg_error < convergence_tol:
-        print(f"Converged after {i + 1} iterations")
+    if eta_delta < convergence_tol:
+        print(f"Converged after {i+1} iterations")
         break
 
 eta = best_eta
 
-# ── Save weights ───────────────────────────────────────────────────────────────
+# === Save weights ===
 np.save("eta_weights.npy", eta)
 
-feature_names = [
-    "Intercept", "T1", "T2", "H", "Occ1", "Occ2",
-    "price_t", "vent_counter", "low_override_r1", "low_override_r2"
-]
+feature_names = ["intercept", "T1", "T2", "H", "Occ1", "Occ2",
+                 "price_t", "vent_counter", "low_override_r1", "low_override_r2"]
 df = pd.DataFrame(eta, columns=feature_names, index=[f"stage_{t}" for t in range(L)])
 df.to_csv("eta_weights.csv")
 print(df)
