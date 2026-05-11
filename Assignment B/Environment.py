@@ -300,7 +300,7 @@ if __name__ == "__main__": # executes the following block only if this file is r
         ADP_policy_30, # policy currently under evaluation
         n_experiments=100, # number of days to simulate
         n_repetitions=3, # number of repetitions of the whole set of experiments
-        plot=False # include plots for each experiment (day)
+        plot=True # include plots for each experiment (day)
     )
 
     all_objectives  = np.array(results["objectives"]) 

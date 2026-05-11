@@ -3,6 +3,7 @@ from pyomo.environ import *
 from sklearn.cluster import KMeans
 import numpy as np
 import time
+import csv
 
 
 from Utils.PriceProcessRestaurant import price_model
@@ -65,10 +66,10 @@ def generate_samples(state, B, N_samples):
         cluster_prob = np.sum(labels == b) / N_samples
 
         data = {
-            "price": centroids[b, 0],                 
-            "occ_room_0":  centroids[b, 1],                 
-            "occ_room_1":  centroids[b, 2],
-            "prob":  cluster_prob
+            "price": float(centroids[b, 0]),                 
+            "occ_room_0":  float(centroids[b, 1]),                 
+            "occ_room_1":  float(centroids[b, 2]),
+            "prob":  float(cluster_prob)
         }
         clusters.append(data)
 
@@ -161,7 +162,7 @@ def solve_MILP(state, scenarios):
 
     # State Variables for each scenario at t+1
     model.temp_next         = Var(model.R, model.Scenarios, domain=NonNegativeReals)
-    model.humidity_next     = Var(model.Scenarios, domain=NonNegativeReals)
+    model.humidity_next     = Var(model.Scenarios)#, domain=NonNegativeReals)
     model.vent_counter_next = Var(domain=NonNegativeIntegers)
     model.overrule_next     = Var(model.R, model.Scenarios, domain=Binary)
     model.y_low_next        = Var(model.R, model.Scenarios, domain=Binary)
@@ -169,21 +170,11 @@ def solve_MILP(state, scenarios):
 
 
     # Objective function
-    if t == 9:  # Only inmediate reward (there's no future)
-        model.obj = Objective(rule = current_price * (
-            P_vent * model.v
-            + model.p[0]
-            + model.p[1]
-        ), sense=minimize)
+    immediate_reward = current_price * (P_vent * model.v + model.p[0] + model.p[1])
+    future_reward    = sum(value_function(model, s, scenarios, state) for s in model.Scenarios) #if len(scenarios) > 0 else 0
 
-    else:   # Inmediate reward + future reward
-        model.obj = Objective(rule = current_price * (
-            P_vent * model.v
-            + model.p[0]
-            + model.p[1]
-        ) + sum(value_function(model, s, scenarios, state) for s in model.Scenarios)
-        , sense=minimize)
-    
+    model.obj = Objective(rule = immediate_reward + future_reward, sense=minimize)
+
 
     # Constraints
     # 1-2. Temperature cutoff and heater deactivation:
@@ -229,7 +220,7 @@ def solve_MILP(state, scenarios):
                                                                         zeta_loss * (current_temp[r] - T_out[t]) +
                                                                         zeta_conv * model.p[r] - 
                                                                         zeta_cool * model.v +
-                                                                        zeta_occ * scenarios[s]["occ_room_" + str(r)]) 
+                                                                        zeta_occ * scenarios[s]["occ_room_" + str(r)])
                                                                         if t < 9 else Constraint.Skip)
 
 
@@ -279,7 +270,14 @@ def solve_MILP(state, scenarios):
 def select_action(state):
     start_time = time.time()
 
-    scenarios = generate_samples(state, B=100, N_samples=1_000)
+    t = state["current_time"]
+    
+    if t == 9:  
+        scenarios = []  
+    else:
+        scenarios = generate_samples(state, B=100, N_samples=1_000)
+
+    
     p1, p2, v = solve_MILP(state, scenarios)
 
     # print(f"Total policy time: {time.time() - start_time:.2f} s")
@@ -293,115 +291,3 @@ def select_action(state):
     return HereAndNowActions
 
 
-
-
-# RICKY's code
-        # if 0 < vent_counter < min_up_time:
-    #     model.v.fix(1)
-
-    # if state["low_override_r1"] and state["T1"] < T_ok:
-    #     model.p[0].fix(P_max)
-    # if state["T1"] >= T_high:
-    #     model.p[0].fix(0)
-
-    # if state["low_override_r2"] and state["T2"] < T_ok:
-    #     model.p[1].fix(P_max)
-
-    # if state["T2"] >= T_high:
-    #     model.p[1].fix(0)
-
-    # if state["H"] > H_high:
-    #     model.v.fix(1)
-
-
-
-# FIRST TRY - NOT WORKING
-# def calculate_room_temperature(P, occupancy, prev_temperature, other_room_prev_temp, V, outside_temperature):
-#     """Calculate the new temperature of a room based on the previous temperature, the heating power, occupancy, 
-#     ventilation, and outdoor temperature.
-#     Inputs:
-#     - P: heating power applied to the room (here-and-now decision p1 or p2)
-#     - occupancy: number of people in the room
-#     - prev_temperature: previous temperature of the room
-#     - other_room_prev_temp: previous temperature of the other room
-#     - data: system characteristics dictionary
-#     - V: ventilation system status (here-and-now decision v)
-#     - outside_temperature: current outdoor temperature
-#     """
-#     return (
-#         prev_temperature + 
-#         zeta_exch * (other_room_prev_temp - prev_temperature) -
-#         zeta_loss * (prev_temperature - outside_temperature) +
-#         zeta_conv * P - 
-#         zeta_cool * V + 
-#         zeta_occ * occupancy
-#     )
-
-# def calculate_humidity(prev_humidity, occupancy1, occupancy2, V):
-#     """Calculate the new humidity of a room based on the previous humidity, occupancy, and ventilation.
-#     Inputs:
-#     - prev_humidity: previous humidity of the room
-#     - occupancy1: number of people in room 1
-#     - occupancy2: number of people in room 2
-#     - V: ventilation system status (here-and-now decision v)
-#     """
-#     return (prev_humidity +
-#             eta_occ * (occupancy1 + occupancy2) -
-#             eta_vent * V
-#     )
-
-# def update_overrule_controler_state(overrule_state, temperature):
-#     return (
-#         (overrule_state or temperature < T_low)
-#         and
-#         not (overrule_state and temperature > T_ok)
-#     )
-
-
-# def value_function(model, scenario, state):
-#     # Variables from time t
-#     hour = state["current_time"]
-#     t1 = state["T1"]
-#     t2 = state["T2"]
-#     H  = state["H"]
-#     new_price_previous = state["price_t"] # price in t = previous price in t+1
-#     outside_temperature = T_out[hour]
-#     vent_counter = state["vent_counter"]
-#     low_override_r1 = state["low_override_r1"]
-#     low_override_r2 = state["low_override_r2"]
-
-#     # Simulated variables for time t+1
-#     new_occupancy1 = scenario["occ1"]
-#     new_occupancy2 = scenario["occ2"]
-#     new_price = scenario["price"]
-
-#     # Tempreature dynamics for t+1 depending on decisions for t: v and p
-#     new_t1 = calculate_room_temperature(model.p[0], new_occupancy1, t1, t2, model.v, outside_temperature)
-#     new_t2 = calculate_room_temperature(model.p[1], new_occupancy2, t2, t1, model.v, outside_temperature)
-
-#     # Humidity dynamics for t+1 depending on decisions for t: v
-#     new_H = calculate_humidity(H, new_occupancy1, new_occupancy2, model.v)
-
-#     # Update vent_counter
-#     new_vent_counter = vent_counter + model.v
-   
-#     # Update overrule controlers
-#     new_low_override_r1 = update_overrule_controler_state(low_override_r1, new_t1)
-#     new_low_override_r2 = update_overrule_controler_state(low_override_r2, new_t2)
-
-
-#     new_state = np.array([new_t1, 
-#                           new_t2, 
-#                           new_H, 
-#                           new_occupancy1, 
-#                           new_occupancy2, 
-#                           new_price, 
-#                           new_price_previous, 
-#                           new_vent_counter,  
-#                           new_low_override_r1, 
-#                           new_low_override_r2])
-
-    
-#     value = sum(eta_weights[hour][i] * new_state[i] for i in range(len(new_state)))
-    
-#     return value

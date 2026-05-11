@@ -4,6 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import warnings
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
+from itertools import repeat
 import os
 import time
 warnings.filterwarnings("ignore")
@@ -11,6 +12,12 @@ warnings.filterwarnings("ignore")
 # Runs the environment in parallel
 #   - Each thread runs all the experiments (days)
 #   - Number of threads = Number of repetitions per experiment
+
+# Choose number of experiments and repetitions
+N_EXPERIMENTS = 100
+N_WORKERS = 8
+N_REPETITIONS = 1  # Each worker runs once, handling multiple days
+POLICY = ADP_policy_30 #SP_policy_30_v2
 
 
 def update_overrule_controler_state(overrule_state, temperature, data):
@@ -53,12 +60,11 @@ def calculate_room_temperature(P, occupancy, prev_temperature, other_room_prev_t
     )
 
 
-def run_environment(policy, n_experiments=1, plot=False):  
+def run_environment(start_day, end_day, plot=False):  
     """Run the environment simulation for a given policy, number of experiments (days) and repetitions.
     Inputs:
-    - policy: function that takes the current state and returns a decision dictionary with keys "HeatPowerRoom1", "HeatPowerRoom2", "VentilationON"
-    - n_experiments: number of days to simulate
-    - n_repetitions: number of times to repeat the whole set of experiments (for statistical significance)
+    - start_day: starting day index (inclusive)
+    - end_day: ending day index (exclusive)
     - plot: whether to plot the results of each experiment (day)
     """
     # Import data
@@ -85,7 +91,7 @@ def run_environment(policy, n_experiments=1, plot=False):
     outside_temperature_vector = data["outdoor_temperature"]
 
     # Simulation
-    for day in range(0, n_experiments): 
+    for day in range(start_day, end_day): 
         print(f"Day {day + 1}")
         vent_counter = 0           # consectutive ventilation tracker has to be reset at the beggining of each day
         is_override_room1 = False  # overrule controllers state also has to be reset at the beggining of each day
@@ -136,7 +142,7 @@ def run_environment(policy, n_experiments=1, plot=False):
             POWER_MAX = {1 : HEATING_MAX_POWER, 2 : HEATING_MAX_POWER}
 
             start_time = time.time()
-            decision = Checks.check_and_sanitize_action(policy, state, POWER_MAX)
+            decision = Checks.check_and_sanitize_action(POLICY, state, POWER_MAX)
             elapsed_time = time.time() - start_time
 
             # Update decision variables
@@ -167,40 +173,53 @@ def run_environment(policy, n_experiments=1, plot=False):
 
     return log_objectives, max_time_logs, avg_time_logs
     
-def run_single_experiment(_):
-    """Helper function for multiprocessing - ignores the input parameter and runs the experiment"""
-    return run_environment(POLICY, N_EXPERIMENTS, False)
+# def run_single_experiment(_):
+    # """Helper function for multiprocessing - ignores the input parameter and runs the experiment"""
+    # return run_environment(POLICY, N_EXPERIMENTS, False)
 
 
-# Choose number of experiments and repetitions
-N_EXPERIMENTS = 100
-N_REPETITIONS = 4
-POLICY = ADP_policy_30 #SP_policy_30_v2
+
 
 if __name__ == "__main__": # executes the following block only if this file is run directly (not imported as a module)
     print("Running policy: ", POLICY.__name__)
+    print(f"Distributing {N_EXPERIMENTS} days across {N_WORKERS} workers")
 
-    # Runs environment in parallel with n_repetition workers
-    with ProcessPoolExecutor(max_workers=N_REPETITIONS) as executor:
-        results = list(executor.map(run_single_experiment, range(N_REPETITIONS)))
+    # Calculate chunk size for each worker
+    chunk_size = N_EXPERIMENTS // N_WORKERS
+    day_ranges = [(i * chunk_size, (i + 1) * chunk_size) for i in range(N_WORKERS)]
+    
+    # Handle any remaining days (if N_EXPERIMENTS not divisible by N_WORKERS)
+    if N_EXPERIMENTS % N_WORKERS != 0:
+        last_start = day_ranges[-1][1]
+        day_ranges[-1] = (day_ranges[-1][0], N_EXPERIMENTS)
+    
+    print(f"Day ranges for each worker: {day_ranges}")
 
-    # Seperate data between different logs
-    objective_values, max_time_values, avg_time_values = zip(*results)
+    # Runs environment in parallel with workers handling different day ranges
+    with ProcessPoolExecutor(max_workers=N_WORKERS) as executor:
+        results = list(executor.map(run_environment, [start for start, end in day_ranges], [end for start, end in day_ranges]))
 
-    # Transpose matrix
-    objective_values = np.array(objective_values).T
-    max_time_values  = np.array(max_time_values).T
-    avg_time_values  = np.array(avg_time_values).T
-
-    # Calculate max and average time for each experiment
-    max_time_values = np.max(max_time_values, axis = 1)
-    avg_time_values = np.mean(avg_time_values, axis = 1)
-
-    # Calculate mean and std of each experiment
-    means = np.mean(objective_values, axis = 1)
-    stds  = np.std(objective_values, axis = 1)
-
-    final_results = np.column_stack((means, stds, max_time_values, avg_time_values))
+    # Combine results from all workers (each worker processed a chunk of days)
+    all_objectives = []
+    all_max_times = []
+    all_avg_times = []
+    
+    for worker_results in results:
+        worker_objectives, worker_max_times, worker_avg_times = worker_results
+        all_objectives.extend(worker_objectives)
+        all_max_times.extend(worker_max_times)
+        all_avg_times.extend(worker_avg_times)
+    
+    # Convert to numpy arrays
+    all_objectives = np.array(all_objectives)
+    all_max_times = np.array(all_max_times)
+    all_avg_times = np.array(all_avg_times)
+    
+    # For single run per day, mean and std are the value and 0
+    means = all_objectives
+    stds = np.zeros_like(all_objectives)
+    
+    final_results = np.column_stack((means, stds, all_max_times, all_avg_times))
 
 
     # Save file with out overwriting
@@ -220,4 +239,6 @@ if __name__ == "__main__": # executes the following block only if this file is r
         comments="",
         fmt="%.2f"
     )
+
+    print(f"Results saved to: {filename}")
 
