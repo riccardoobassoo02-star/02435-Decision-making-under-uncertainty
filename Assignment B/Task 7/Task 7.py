@@ -1,9 +1,4 @@
 # -*- coding: utf-8 -*-
-"""
-Created on Wed Dec  3 12:30:18 2025
-
-@author: geots
-"""
 import pandas as pd
 from pyomo.environ import *
 import numpy as np
@@ -32,9 +27,7 @@ heater_vent_coeff= data7['heat_vent_coeff']# Ventilation cooling effect: # Tempe
 heat_occupancy_coeff = data7['heat_occupancy_coeff'] # Occupancy heat gain: # Temperature increase per hour per person in the room (°C)
 T_outdoor = data7['outdoor_temperature']# Outdoor temperature (°C)
 
-#------------------------------------------------------------------------------
 # 1. Centralized Problem (The Benchmark)
-#------------------------------------------------------------------------------
 def solve_centralized_problem(data7, occupancy_df):
     model = ConcreteModel()
     model.N = RangeSet(1, 15) # 15 stores
@@ -71,9 +64,7 @@ def solve_centralized_problem(data7, occupancy_df):
 print("Solving Centralized Benchmark...")
 centralized_optimal_obj = solve_centralized_problem(data7, occupancy)
 
-#------------------------------------------------------------------------------
 # 2. Store Sub-Problem (The Distributed Agent)
-#------------------------------------------------------------------------------
 def solve_store_subproblem(n, lambda_t_current, data7, occupancy_df):
     model = ConcreteModel()
     model.R = RangeSet(1, 2)
@@ -95,7 +86,7 @@ def solve_store_subproblem(n, lambda_t_current, data7, occupancy_df):
             data7['heat_occupancy_coeff'] * occupancy_df.iloc[r - 1, t - 1]
     model.temp_cons = Constraint(model.R, model.T, rule=temp_dynamics_rule)
 
-    # Discomfort Calculation (used for System Obj)
+    # Discomfort Calculation (used for System Objective)
     comfort_penalty = sum((n + 1) * (model.Temp[r, t] - data7['Temperature_reference']) ** 2
                           for r in model.R for t in model.T)
 
@@ -116,9 +107,7 @@ def solve_store_subproblem(n, lambda_t_current, data7, occupancy_df):
     else:
         return [0.0] * data7['num_timeslots'], 0.0
 
-#------------------------------------------------------------------------------
-# 3. Master Loop: Sensitivity Analysis
-#------------------------------------------------------------------------------
+# 3. Sensitivity Analysis
 alpha_set = [0.001, 0.01, 0.1, 1, 10, 'adaptive']
 results = {a: {'obj': [], 'lambda': [], 'viol': []} for a in alpha_set}
 
@@ -149,9 +138,7 @@ for alpha_val in alpha_set:
             violation = total_p[t] - data7['P_mall']
             lambda_t[t] = max(0, lambda_t[t] + step * violation)
 
-#------------------------------------------------------------------------------
 # 4. Plots
-#------------------------------------------------------------------------------
 
 # PLOT 1: System Objective
 plt.figure(figsize=(10, 5))
@@ -161,26 +148,38 @@ plt.axhline(y=centralized_optimal_obj, color='r', linestyle='--', label='Central
 plt.title("System Objective Value (Social Welfare) across Iterations")
 plt.xlabel("Iteration (k)"); plt.ylabel("Objective Value"); plt.legend(); plt.show()
 
-# PLOT 2: Multiplier Evolution (using alpha=0.1 as example)
-plt.figure(figsize=(10, 5))
-lambda_history = np.array(results[0.1]['lambda'])
-for t in range(data7['num_timeslots']):
-    plt.plot(lambda_history[:, t], label=f'Slot t={t}')
-plt.title("Evolution of Lagrange Multipliers (λ_t) for alpha=0.1")
-plt.xlabel("Iteration (k)"); plt.ylabel("Price λ_t"); plt.legend(); plt.show()
+# PLOT 2: Multiplier Evolution
+fig, axes = plt.subplots(2, 3, figsize=(15, 8))
+axes = axes.flatten()
+for idx, a in enumerate(alpha_set):
+    lambda_history = np.array(results[a]['lambda'])
+    for t in range(data7['num_timeslots']):
+        axes[idx].plot(lambda_history[:, t], label=f't={t}')
+    axes[idx].set_title(f"Multipliers λ_t  (alpha={a})")
+    axes[idx].set_xlabel("Iteration (k)")
+    axes[idx].set_ylabel("Price λ_t")
+    axes[idx].legend(fontsize=6, ncol=2)
+plt.suptitle("Evolution of Lagrange Multipliers (λ_t) — All Step Sizes", fontsize=13)
+plt.tight_layout()
+plt.show()
 
-# PLOT 3: Violations (using alpha=0.1 as example)
-plt.figure(figsize=(10, 5))
-viol_history = np.array(results[0.1]['viol'])
-for t in range(data7['num_timeslots']):
-    plt.plot(viol_history[:, t], label=f'Slot t={t}')
-plt.axhline(y=0, color='black', linewidth=1)
-plt.title("Evolution of Power Violations per Timeslot (alpha=0.1)")
-plt.xlabel("Iteration (k)"); plt.ylabel("Violation [kW]"); plt.legend(); plt.show()
+# PLOT 3: Constraint Violations
+fig, axes = plt.subplots(2, 3, figsize=(15, 8))
+axes = axes.flatten()
+for idx, a in enumerate(alpha_set):
+    viol_history = np.array(results[a]['viol'])
+    for t in range(data7['num_timeslots']):
+        axes[idx].plot(viol_history[:, t], label=f't={t}')
+    axes[idx].axhline(y=0, color='black', linewidth=1)
+    axes[idx].set_title(f"Power Violations  (alpha={a})")
+    axes[idx].set_xlabel("Iteration (k)")
+    axes[idx].set_ylabel("Violation [kW]")
+    axes[idx].legend(fontsize=6, ncol=2)
+plt.suptitle("Evolution of Power Violations per Timeslot — All Step Sizes", fontsize=13)
+plt.tight_layout()
+plt.show()
 
-# ------------------------------------------------------------------------------
 # 5. FINAL PLOT: Power Distribution per Store (Adaptive Alpha, Final Iteration)
-# ------------------------------------------------------------------------------
 
 # We will re-run a quick capture for the 'adaptive' case to get individual store data
 final_store_power = []  # To store (15 stores x 10 hours)
