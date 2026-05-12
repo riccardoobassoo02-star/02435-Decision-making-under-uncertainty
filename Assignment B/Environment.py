@@ -1,6 +1,6 @@
 from Utils import v2_SystemCharacteristics, Checks
 #import SP_policy_30
-import ADP_policy_30v2
+import Policies.ADP_policy_30
 import numpy as np
 import matplotlib.pyplot as plt
 import warnings
@@ -292,34 +292,41 @@ def run_environment(policy, n_experiments=1, n_repetitions=1, plot=False):
     }
 
 
-if __name__ == "__main__": # executes the following block only if this file is run directly (not imported as a module)
+if __name__ == "__main__":
     data = v2_SystemCharacteristics.get_fixed_data()
-    price_data = np.genfromtxt("Data/v2_PriceData.csv", delimiter=",", skip_header=1)
-    price_matrix = price_data[:, 1:] 
-    results = run_environment(
-        ADP_policy_30v2, # policy currently under evaluation
-        n_experiments=2, # number of days to simulate
-        n_repetitions=2, # number of repetitions of the whole set of experiments
-        plot=True # include plots for each experiment (day)
+
+    price_data = np.genfromtxt(
+        "Data/v2_PriceData.csv",
+        delimiter=",",
+        skip_header=1
     )
-    # Print hourly costs for day 1, rep 1
-    log = results["logs"][0]["log"]
-    print("Day 1 - Hourly costs:")
-    total = 0
-    for h in range(len(log["hour"])):
-        cost = price_matrix[0][h] * (log["V"][h] * data["ventilation_power"] + log["P1"][h] + log["P2"][h])
-        total += cost
-        print(f"  Hour {h}: {cost:.2f}")
-    print(f"  Total: {total:.2f}")
-    all_objectives  = np.array(results["objectives"]) 
-    mean_objectives = np.mean(all_objectives, axis=0)
-    std_objectives  = np.std(all_objectives, axis=0)
 
-    data = get_fixed_data()
-    T_out = data['outdoor_temperature']  
+    price_matrix = price_data[:, 1:]
 
-    t = 5
-    print(T_out[t])
+    n_days = price_matrix.shape[0]
+    n_repetitions = 1
+
+    results = run_environment(
+        Policies.ADP_policy_30,
+        n_experiments=n_days,
+        n_repetitions=n_repetitions,
+        plot=False
+    )
+
+    all_objectives = np.array(results["objectives"])
+
+    # Shape: n_repetitions x n_days
+    mean_cost_per_day = np.mean(all_objectives, axis=0)
+    total_mean_cost = np.mean(all_objectives)
+
+    print("\nDaily costs:")
+    for day, cost in enumerate(mean_cost_per_day):
+        print(f"Day {day + 1}: {cost:.2f}")
+
+    print("\nSummary:")
+    print(f"Number of days evaluated: {n_days}")
+    print(f"Number of repetitions: {n_repetitions}")
+    print(f"Average daily cost over all days: {total_mean_cost:.2f}")
 
     # plt.figure(figsize=(10, 5))
     # plt.errorbar(range(1, len(mean_objectives) + 1), mean_objectives, yerr=std_objectives, fmt='-o', capsize=5)
