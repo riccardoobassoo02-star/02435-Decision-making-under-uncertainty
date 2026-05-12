@@ -4,7 +4,6 @@ import numpy as np
 import time
 import csv
 
-
 from Utils.PriceProcessRestaurant import price_model
 from Utils.OccupancyProcessRestaurant import next_occupancy_levels
 from Utils.v2_SystemCharacteristics import get_fixed_data
@@ -62,10 +61,10 @@ def generate_samples(state, B, N_samples):
         cluster_prob = np.sum(labels == b) / N_samples
 
         data = {
-            "price": float(centroids[b, 0]),                 
-            "occ_room_0":  float(centroids[b, 1]),                 
-            "occ_room_1":  float(centroids[b, 2]),
-            "prob":  float(cluster_prob)
+            "price": float(centroids[b, 0]),
+            "occ_room_0": float(centroids[b, 1]),
+            "occ_room_1": float(centroids[b, 2]),
+            "prob": float(cluster_prob)
         }
 
         clusters.append(data)
@@ -79,23 +78,24 @@ def value_function(model, s_idx, scenarios, state):
 
     V(s_{t+1}) = eta[t+1]^T phi(s_{t+1})
 
-    EXACTLY aligned with offline phi().
+    Aligned with the offline phi().
     """
 
     t = state["current_time"]
     w = eta_weights[t + 1]
 
     # State variables for scenario s in time t+1
-    T1_next    = model.temp_next[0, s_idx]
-    T2_next    = model.temp_next[1, s_idx]
-    H_next     = model.humidity_next[s_idx]
-    Occ1_next  = scenarios[s_idx]["occ_room_0"]
-    Occ2_next  = scenarios[s_idx]["occ_room_1"]
-    price_next = scenarios[s_idx]["price"]
-    vc_next    = model.vent_counter_next
-    lr1_next   = model.overrule_next[0, s_idx]
-    lr2_next   = model.overrule_next[1, s_idx]
-    
+    T1_next             = model.temp_next[0, s_idx]
+    T2_next             = model.temp_next[1, s_idx]
+    H_next              = model.humidity_next[s_idx]
+    Occ1_next           = scenarios[s_idx]["occ_room_0"]
+    Occ2_next           = scenarios[s_idx]["occ_room_1"]
+    price_next          = scenarios[s_idx]["price"]
+    price_previous_next = state["price_t"]
+    vc_next             = model.vent_counter_next
+    lr1_next            = model.overrule_next[0, s_idx]
+    lr2_next            = model.overrule_next[1, s_idx]
+
     return (
         w[0] * 1.0
         + w[1] * (T1_next - 22) / 8
@@ -104,11 +104,11 @@ def value_function(model, s_idx, scenarios, state):
         + w[4] * (Occ1_next - 20) / 30
         + w[5] * (Occ2_next - 10) / 20
         + w[6] * price_next / 12
-        + w[7] * vc_next / 3
-        + w[8] * lr1_next
-        + w[9] * lr2_next
-    )   
-
+        + w[7] * price_previous_next / 12
+        + w[8] * vc_next / 3
+        + w[9] * lr1_next
+        + w[10] * lr2_next
+    )
 
 
 def solve_MILP(state, scenarios):
@@ -149,91 +149,96 @@ def solve_MILP(state, scenarios):
     model.overrule = Var(model.R, domain=Binary)
 
     # Ventilation startup at time t
-    model.s = Var(domain=Binary) # binary variable indicating ventilation startup at time t (1 if ventilation starts at time t, 0 otherwise)
+    model.s = Var(domain=Binary)
 
-    # State Variables for each scenario at t+1
+    # State variables for each scenario at t+1
     model.temp_next         = Var(model.R, model.Scenarios, domain=NonNegativeReals)
-    model.humidity_next     = Var(model.Scenarios)#, domain=NonNegativeReals)
+    model.humidity_next     = Var(model.Scenarios)
     model.vent_counter_next = Var(domain=NonNegativeIntegers)
     model.overrule_next     = Var(model.R, model.Scenarios, domain=Binary)
     model.y_low_next        = Var(model.R, model.Scenarios, domain=Binary)
     model.y_ok_next         = Var(model.R, model.Scenarios, domain=Binary)
 
+    # Immediate electricity cost
+    immediate_cost = current_price * (
+        P_vent * model.v + model.p[0] + model.p[1]
+    )
 
-    # Objective function
-    immediate_reward = current_price * (P_vent * model.v + model.p[0] + model.p[1])
-    future_reward    = sum(value_function(model, s, scenarios, state) for s in model.Scenarios) #if len(scenarios) > 0 else 0
+    # Current high-temperature detection
+    model.c1 = Constraint(
+        model.R,
+        rule=lambda model, r:
+            current_temp[r] >= T_high - M_temp * (1 - model.y_high[r])
+    )
 
-    model.obj = Objective(rule = immediate_reward + future_reward, sense=minimize)
-
-
-    # Constraints
-    # 1-2. Temperature cutoff and heater deactivation:
-    model.c1 = Constraint(model.R, rule=lambda model, r: current_temp[r] >= T_high - M_temp * (1 - model.y_high[r]))
-    model.c2 = Constraint(model.R, rule=lambda model, r: current_temp[r] <= T_high + M_temp * model.y_high[r])
+    model.c2 = Constraint(
+        model.R,
+        rule=lambda model, r:
+            current_temp[r] <= T_high + M_temp * model.y_high[r]
+    )
 
     # If current temperature is too high, heater is forced to zero
     model.c3 = Constraint(
         model.R,
-        rule=lambda m, r:
-            m.p[r] <= P_max * (1 - m.y_high[r])
+        rule=lambda model, r:
+            model.p[r] <= P_max * (1 - model.y_high[r])
     )
 
     # Current low-temperature detection
     model.c4 = Constraint(
         model.R,
-        rule=lambda m, r:
-            current_temp[r] <= T_low + M_temp * (1 - m.y_low[r])
+        rule=lambda model, r:
+            current_temp[r] <= T_low + M_temp * (1 - model.y_low[r])
     )
 
     model.c5 = Constraint(
         model.R,
-        rule=lambda m, r:
-            current_temp[r] >= T_low - M_temp * m.y_low[r]
+        rule=lambda model, r:
+            current_temp[r] >= T_low - M_temp * model.y_low[r]
     )
 
     # Current OK-temperature detection
     model.c6 = Constraint(
         model.R,
-        rule=lambda m, r:
-            current_temp[r] >= T_ok - M_temp * (1 - m.y_ok[r])
+        rule=lambda model, r:
+            current_temp[r] >= T_ok - M_temp * (1 - model.y_ok[r])
     )
 
     model.c7 = Constraint(
         model.R,
-        rule=lambda m, r:
-            current_temp[r] <= T_ok + M_temp * m.y_ok[r]
+        rule=lambda model, r:
+            current_temp[r] <= T_ok + M_temp * model.y_ok[r]
     )
 
     # Current low-temperature overrule logic
     model.c8 = Constraint(
         model.R,
-        rule=lambda m, r:
-            m.overrule[r] >= m.y_low[r]
+        rule=lambda model, r:
+            model.overrule[r] >= model.y_low[r]
     )
 
     model.c9 = Constraint(
         model.R,
-        rule=lambda m, r:
-            m.overrule[r] <= overrulers_prev[r] + m.y_low[r]
+        rule=lambda model, r:
+            model.overrule[r] <= overrulers_prev[r] + model.y_low[r]
     )
 
     model.c10 = Constraint(
         model.R,
-        rule=lambda m, r:
-            m.p[r] >= P_max * m.overrule[r]
+        rule=lambda model, r:
+            model.p[r] >= P_max * model.overrule[r]
     )
 
     model.c11 = Constraint(
         model.R,
-        rule=lambda m, r:
-            m.overrule[r] >= overrulers_prev[r] - m.y_ok[r]
+        rule=lambda model, r:
+            model.overrule[r] >= overrulers_prev[r] - model.y_ok[r]
     )
 
     model.c12 = Constraint(
         model.R,
-        rule=lambda m, r:
-            m.overrule[r] <= 1 - m.y_ok[r]
+        rule=lambda model, r:
+            model.overrule[r] <= 1 - model.y_ok[r]
     )
 
     # Ventilation startup and minimum up-time logic
@@ -249,88 +254,100 @@ def solve_MILP(state, scenarios):
 
     model.c16 = Constraint(expr=model.v >= v_inertia)
 
-    # 17. Humidity-Triggered Ventilation
-    model.c17 = Constraint(rule = current_humidity <= H_high + M_hum * model.v)
+    # Humidity-triggered ventilation
+    model.c17 = Constraint(
+        expr=current_humidity <= H_high + M_hum * model.v
+    )
 
+    if t < L - 1:
+        # Temperature dynamics at t+1 for each scenario
+        model.c18 = Constraint(
+            model.R,
+            model.Scenarios,
+            rule=lambda model, r, s:
+                model.temp_next[r, s] ==
+                current_temp[r]
+                + zeta_exch * (current_temp[1 - r] - current_temp[r])
+                - zeta_loss * (current_temp[r] - T_out[t])
+                + zeta_conv * model.p[r]
+                - zeta_cool * model.v
+                + zeta_occ * current_occ[r]
+        )
 
-    #### CONSTRAINTS FOR NEXT STATE (montecarlo scenarios) ####
-    # 18. Temperature dynamics at t+1 for each scenario
-    model.c18 = Constraint(model.R, model.Scenarios, rule=lambda model, r, s: (model.temp_next[r, s] == current_temp[r] + 
-                                                                        zeta_exch * (current_temp[1-r] - current_temp[r]) -
-                                                                        zeta_loss * (current_temp[r] - T_out[t]) +
-                                                                        zeta_conv * model.p[r] - 
-                                                                        zeta_cool * model.v +
-                                                                        zeta_occ * scenarios[s]["occ_room_" + str(r)])
-                                                                        if t < 9 else Constraint.Skip)
+        # Humidity dynamics at t+1 for each scenario
+        model.c19 = Constraint(
+            model.Scenarios,
+            rule=lambda model, s:
+                model.humidity_next[s] ==
+                current_humidity
+                + eta_occ * (current_occ[0] + current_occ[1])
+                - eta_vent * model.v
+        )
 
-
-    # 19. Humidity dynamics at t+1 for each scenario
-    model.c19 = Constraint(model.Scenarios, rule=lambda model, s: 
-                                        (model.humidity_next[s] == current_humidity + 
-                                        eta_occ * sum(scenarios[s]["occ_room_" + str(r)] for r in model.R) - 
-                                        eta_vent * model.v) if t < 9 else Constraint.Skip)
-
-    # 20. Vent counter at t+1 for ALL scenarios
-    model.c20 = Constraint(rule = model.vent_counter_next == model.v * (current_vent_counter + 1))
+        # Ventilation counter update
+        model.c20 = Constraint(
+            rule=lambda model:
+                model.vent_counter_next == current_vent_counter * model.v + model.v
+        )
 
         # Next low-temperature detection
         model.c21 = Constraint(
             model.R,
             model.Scenarios,
-            rule=lambda m, r, s:
-                m.temp_next[r, s] <= T_low + M_temp * (1 - m.y_low_next[r, s])
+            rule=lambda model, r, s:
+                model.temp_next[r, s] <= T_low + M_temp * (1 - model.y_low_next[r, s])
         )
 
         model.c22 = Constraint(
             model.R,
             model.Scenarios,
-            rule=lambda m, r, s:
-                m.temp_next[r, s] >= T_low - M_temp * m.y_low_next[r, s]
+            rule=lambda model, r, s:
+                model.temp_next[r, s] >= T_low - M_temp * model.y_low_next[r, s]
         )
 
-        # Next overrule activation if temperature is low
+        # Next OK-temperature detection
         model.c23 = Constraint(
             model.R,
             model.Scenarios,
-            rule=lambda m, r, s:
-                m.overrule_next[r, s] >= m.y_low_next[r, s]
+            rule=lambda model, r, s:
+                model.temp_next[r, s] >= T_ok - M_temp * (1 - model.y_ok_next[r, s])
         )
 
         model.c24 = Constraint(
             model.R,
             model.Scenarios,
-            rule=lambda m, r, s:
-                m.overrule_next[r, s] <= m.overrule[r] + m.y_low_next[r, s]
+            rule=lambda model, r, s:
+                model.temp_next[r, s] <= T_ok + M_temp * model.y_ok_next[r, s]
         )
 
-        # Next OK-temperature detection
+        # Next overrule activation if temperature is low
         model.c25 = Constraint(
             model.R,
             model.Scenarios,
-            rule=lambda m, r, s:
-                m.temp_next[r, s] >= T_ok - M_temp * (1 - m.y_ok_next[r, s])
+            rule=lambda model, r, s:
+                model.overrule_next[r, s] >= model.y_low_next[r, s]
         )
 
         model.c26 = Constraint(
             model.R,
             model.Scenarios,
-            rule=lambda m, r, s:
-                m.temp_next[r, s] <= T_ok + M_temp * m.y_ok_next[r, s]
+            rule=lambda model, r, s:
+                model.overrule_next[r, s] <= model.overrule[r] + model.y_low_next[r, s]
         )
 
         # Next overrule deactivation if temperature is OK
         model.c27 = Constraint(
             model.R,
             model.Scenarios,
-            rule=lambda m, r, s:
-                m.overrule_next[r, s] >= m.overrule[r] - m.y_ok_next[r, s]
+            rule=lambda model, r, s:
+                model.overrule_next[r, s] >= model.overrule[r] - model.y_ok_next[r, s]
         )
 
         model.c28 = Constraint(
             model.R,
             model.Scenarios,
-            rule=lambda m, r, s:
-                m.overrule_next[r, s] <= 1 - m.y_ok_next[r, s]
+            rule=lambda model, r, s:
+                model.overrule_next[r, s] <= 1 - model.y_ok_next[r, s]
         )
 
         # ADP objective: immediate cost plus expected approximate value of next state
@@ -367,18 +384,23 @@ def solve_MILP(state, scenarios):
 def select_action(state):
     start_time = time.time()
 
+    state = state.copy()
+
+    if "price_previous" not in state:
+        state["price_previous"] = state["price_t"]
+
     t = state["current_time"]
-    
-    if t == 9:  
-        scenarios = []  
+
+    if t == L - 1:
+        scenarios = []
     else:
-        scenarios = generate_samples(state, B=100, N_samples=1_000)
+        scenarios = generate_samples(state, B=5, N_samples=500)
 
-    
-    p1, p2, v = solve_MILP(state, scenarios)
+    try:
+        p1, p2, v = solve_MILP(state, scenarios)
+    except Exception:
+        p1, p2, v = 0.0, 0.0, 0
 
-    # print(f"Total policy time: {time.time() - start_time:.2f} s")
-    
     HereAndNowActions = {
         "HeatPowerRoom1": p1,
         "HeatPowerRoom2": p2,
@@ -386,5 +408,3 @@ def select_action(state):
     }
 
     return HereAndNowActions
-
-

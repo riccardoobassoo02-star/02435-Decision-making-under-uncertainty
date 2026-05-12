@@ -2,6 +2,7 @@ from Utils import v2_SystemCharacteristics, Checks
 from Policies import SP_policy_30, ADP_policy_30
 import numpy as np
 import matplotlib.pyplot as plt
+import time
 import warnings
 from Utils.v2_SystemCharacteristics import get_fixed_data
 warnings.filterwarnings("ignore")
@@ -149,43 +150,39 @@ def _plot_experiment(rep, day, day_log, price_series=None, temp_thresholds=None,
 
 
 def run_environment(policy, n_experiments=1, n_repetitions=1, plot=False):  
-    """Run the environment simulation for a given policy, number of experiments (days) and repetitions.
-    Inputs:
-    - policy: function that takes the current state and returns a decision dictionary with keys "HeatPowerRoom1", "HeatPowerRoom2", "VentilationON"
-    - n_experiments: number of days to simulate
-    - n_repetitions: number of times to repeat the whole set of experiments (for statistical significance)
-    - plot: whether to plot the results of each experiment (day)
+    """
+    Run the environment simulation for a given policy.
+    Prints the running average daily cost during the simulation.
     """
     # Import data
     data = v2_SystemCharacteristics.get_fixed_data()
     occupancy1_matrix = np.genfromtxt("Data/OccupancyRoom1.csv", delimiter=",", skip_header=1)
     occupancy2_matrix = np.genfromtxt("Data/OccupancyRoom2.csv", delimiter=",", skip_header=1)
-    price_data        = np.genfromtxt("Data/v2_PriceData.csv",   delimiter=",", skip_header=1)
+    price_data        = np.genfromtxt("Data/v2_PriceData.csv", delimiter=",", skip_header=1)
 
-    # Vector with initial previous value of electricity for each day (t-1)
-    initial_previous_prices = price_data[:, 0] # takes only the first column of the price data
+    # Vector with rest of price data
+    initial_previous_prices = price_data[:, 0]
 
     # Matrix with rest of price data
-    price_matrix = price_data[:, 1:] # takes all columns except the first one
+    price_matrix = price_data[:, 1:]
 
     NUM_TIMESLOTS     = data["num_timeslots"]
     HEATING_MAX_POWER = data["heating_max_power"]
-    VENT_MIN_UP_TIME  = data["vent_min_up_time"] # 3 consecutive hours
+    VENT_MIN_UP_TIME  = data["vent_min_up_time"]
 
-    all_objectives = [] # store objective values for all repetitions and experiments (days)
-    all_logs = [] # store detailed logs for all repetitions and experiments (days)
+    all_objectives = []
+    all_logs = [] 
 
     for rep in range(n_repetitions):
         outside_temperature_vector = data["outdoor_temperature"]
         objective_value_record = []
-
-        # Simulation
-        for day in range(0, n_experiments): 
-            print(f"Day {day}")
-            vent_counter = 0           # consectutive ventilation tracker has to be reset at the beggining of each day (false=OFF, true=ON)
-            is_override_room1 = False  # overrule controllers state also has to be reset at the beggining of each day (false=OFF, true=ON)
+         
+         # Simulation
+        for day in range(n_experiments): 
+            vent_counter = 0
+            is_override_room1 = False
             is_override_room2 = False
-            objective_value = 0        # objective value has to be reset at the beggining of each day
+            objective_value = 0
 
             day_log = {
                 "hour": [],
@@ -197,28 +194,61 @@ def run_environment(policy, n_experiments=1, n_repetitions=1, plot=False):
                 "H": []
             }
 
-            for hour in range(0, NUM_TIMESLOTS):
-                print(f"Hour {hour}")
+            for hour in range(NUM_TIMESLOTS):
                 if hour == 0:
-                    previous_price    = initial_previous_prices[day]
+                    previous_price = initial_previous_prices[day]
                     temperature_room1 = data["T1"]
                     temperature_room2 = data["T2"]
-                    humidity          = data["H"]
+                    humidity = data["H"]
 
                 else:
-                    previous_price = price_matrix[day][hour-1]
-                    old_T1, old_T2 = temperature_room1, temperature_room2 # store old temperatures to calculate the new ones based on them (before updating them)
-                    temperature_room1 = calculate_room_temperature(P1, occupancy1_matrix[day][hour-1], old_T1, old_T2, data, V, outside_temperature_vector[hour-1])
-                    temperature_room2 = calculate_room_temperature(P2, occupancy2_matrix[day][hour-1], old_T2, old_T1, data, V, outside_temperature_vector[hour-1])
-                    humidity = (
-                        humidity +
-                        data["humidity_occupancy_coeff"] * (occupancy1_matrix[day][hour-1] + occupancy2_matrix[day][hour-1]) -
-                        data["humidity_vent_coeff"] * V
+                    previous_price = price_matrix[day][hour - 1]
+
+                    old_T1 = temperature_room1
+                    old_T2 = temperature_room2
+
+                    temperature_room1 = calculate_room_temperature(
+                        P1,
+                        occupancy1_matrix[day][hour - 1],
+                        old_T1,
+                        old_T2,
+                        data,
+                        V,
+                        outside_temperature_vector[hour - 1]
                     )
 
-                # update overrule controlers state
-                is_override_room1 = update_overrule_controler_state(is_override_room1, temperature_room1, data)
-                is_override_room2 = update_overrule_controler_state(is_override_room2, temperature_room2, data)
+                    temperature_room2 = calculate_room_temperature(
+                        P2,
+                        occupancy2_matrix[day][hour - 1],
+                        old_T2,
+                        old_T1,
+                        data,
+                        V,
+                        outside_temperature_vector[hour - 1]
+                    )
+
+                    humidity = (
+                        humidity
+                        + data["humidity_occupancy_coeff"] *
+                        (
+                            occupancy1_matrix[day][hour - 1]
+                            + occupancy2_matrix[day][hour - 1]
+                        )
+                        - data["humidity_vent_coeff"] * V
+                    )
+
+                # update overrule controllers state
+                is_override_room1 = update_overrule_controler_state(
+                    is_override_room1,
+                    temperature_room1,
+                    data
+                )
+
+                is_override_room2 = update_overrule_controler_state(
+                    is_override_room2,
+                    temperature_room2,
+                    data
+                )
 
                 # Update state
                 state = {
@@ -235,29 +265,54 @@ def run_environment(policy, n_experiments=1, n_repetitions=1, plot=False):
                     "current_time": hour
                 }
 
-                # Evaluate policy's decision
-                POWER_MAX = {1 : HEATING_MAX_POWER, 2 : HEATING_MAX_POWER}
-                decision = Checks.check_and_sanitize_action(policy, state, POWER_MAX)
-                # Update decision variables
-                V  = 1 if (humidity > data["humidity_threshold"]) or (0 < vent_counter < VENT_MIN_UP_TIME) else decision["VentilationON"] # if humidity is above the threshold or the min up time is still going, the ventilation is turned ON regardless of the policy's decision. .
-                P1 = decision["HeatPowerRoom1"] if not is_override_room1 else HEATING_MAX_POWER # if overrule controller is ON, the heating power is set to the maximum, regardless of the policy's decision
-                P2 = decision["HeatPowerRoom2"] if not is_override_room2 else data["heating_max_power"] # if overrule controller is ON, the heating power is set to the maximum, regardless of the policy's decision
-                # High-temp overrule: force heating OFF if temperature is at or above max threshold
+                # Evaluate policy's decisions
+                POWER_MAX = {
+                    1: HEATING_MAX_POWER,
+                    2: HEATING_MAX_POWER
+                }
+
+                decision = Checks.check_and_sanitize_action(
+                    policy,
+                    state,
+                    POWER_MAX
+                )
+
+                V = (
+                    1
+                    if (humidity > data["humidity_threshold"])
+                    or (0 < vent_counter < VENT_MIN_UP_TIME)
+                    else decision["VentilationON"]
+                )
+
+                P1 = (
+                    decision["HeatPowerRoom1"]
+                    if not is_override_room1
+                    else HEATING_MAX_POWER
+                )
+
+                P2 = (
+                    decision["HeatPowerRoom2"]
+                    if not is_override_room2
+                    else HEATING_MAX_POWER
+                )
+
                 if temperature_room1 >= data["temp_max_comfort_threshold"]:
                     P1 = 0
+
                 if temperature_room2 >= data["temp_max_comfort_threshold"]:
                     P2 = 0
-
-                # Update consecutive ventilation usage counter
+                # Update consecutive ventilation counter
                 if V == 0:
                     vent_counter = 0
                 else:
                     vent_counter += 1
+                
+                # Calculate objective function (electricity cost)
+                objective_value += price_matrix[day][hour] * (
+                    V * data["ventilation_power"] + P1 + P2
+                )
 
-                # Calculate objective function
-                objective_value += price_matrix[day][hour] * (V * data["ventilation_power"] + P1 + P2)
-
-                # Store logs
+                # Save logs
                 day_log["hour"].append(hour)
                 day_log["V"].append(V)
                 day_log["P1"].append(P1)
@@ -269,12 +324,23 @@ def run_environment(policy, n_experiments=1, n_repetitions=1, plot=False):
             objective_value_record.append(objective_value)
             all_logs.append({"rep": rep, "day": day, "log": day_log})
 
+            running_mean = np.mean(objective_value_record)
+
+            print(
+                f"Rep {rep + 1}, Day {day + 1}: "
+                f"daily cost = {objective_value:.2f}, "
+                f"running average = {running_mean:.2f}",
+                flush=True
+            )
+
             if plot:
                 temp_thresholds = (
                     data["temp_min_comfort_threshold"],
                     data["temp_OK_threshold"]
                 )
+
                 humidity_threshold = data.get("humidity_threshold", None)
+
                 _plot_experiment(
                     rep,
                     day,
@@ -293,8 +359,6 @@ def run_environment(policy, n_experiments=1, n_repetitions=1, plot=False):
 
 
 if __name__ == "__main__":
-    data = v2_SystemCharacteristics.get_fixed_data()
-
     price_data = np.genfromtxt(
         "Data/v2_PriceData.csv",
         delimiter=",",
@@ -307,23 +371,25 @@ if __name__ == "__main__":
     n_repetitions = 1
 
     results = run_environment(
-        ADP_policy_30, # policy currently under evaluation
-        n_experiments=100, # number of days to simulate
-        n_repetitions=3, # number of repetitions of the whole set of experiments
-        plot=True # include plots for each experiment (day)
+        ADP_policy_30, # policycurrently under evaluation
+        n_experiments=n_days, # number of days to simulate
+        n_repetitions=n_repetitions, # number of repetitions of the whole set of experiments
+        plot=False # include plots for each day
     )
 
-    all_objectives  = np.array(results["objectives"]) 
-    mean_objectives = np.mean(all_objectives, axis=0)
-    std_objectives  = np.std(all_objectives, axis=0)
+    all_objectives = np.array(results["objectives"])
 
-    print(mean_objectives)
+    mean_cost_per_day = np.mean(all_objectives, axis=0)
+    total_mean_cost = np.mean(all_objectives)
 
-    data = get_fixed_data()
-    T_out = data['outdoor_temperature']  
+    print("\nMean cost per day:")
+    for day, cost in enumerate(mean_cost_per_day):
+        print(f"Day {day + 1}: {cost:.2f}")
 
-    t = 5
-    print(T_out[t])
+    print("\nSummary:")
+    print(f"Number of days evaluated: {n_days}")
+    print(f"Number of repetitions: {n_repetitions}")
+    print(f"Average daily cost over all days: {total_mean_cost:.2f}")
 
     # plt.figure(figsize=(10, 5))
     # plt.errorbar(range(1, len(mean_objectives) + 1), mean_objectives, yerr=std_objectives, fmt='-o', capsize=5)
