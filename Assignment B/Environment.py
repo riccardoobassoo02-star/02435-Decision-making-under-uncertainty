@@ -1,6 +1,5 @@
 from Utils import v2_SystemCharacteristics, Checks
-#import SP_policy_30
-import Policies.ADP_policy_30
+from Policies import SP_policy_30, ADP_policy_30
 import numpy as np
 import matplotlib.pyplot as plt
 import warnings
@@ -182,6 +181,7 @@ def run_environment(policy, n_experiments=1, n_repetitions=1, plot=False):
 
         # Simulation
         for day in range(0, n_experiments): 
+            print(f"Day {day}")
             vent_counter = 0           # consectutive ventilation tracker has to be reset at the beggining of each day (false=OFF, true=ON)
             is_override_room1 = False  # overrule controllers state also has to be reset at the beggining of each day (false=OFF, true=ON)
             is_override_room2 = False
@@ -198,7 +198,7 @@ def run_environment(policy, n_experiments=1, n_repetitions=1, plot=False):
             }
 
             for hour in range(0, NUM_TIMESLOTS):
-                #print("Hour: ", hour)
+                print(f"Hour {hour}")
                 if hour == 0:
                     previous_price    = initial_previous_prices[day]
                     temperature_room1 = data["T1"]
@@ -307,26 +307,23 @@ if __name__ == "__main__":
     n_repetitions = 1
 
     results = run_environment(
-        Policies.ADP_policy_30,
-        n_experiments=n_days,
-        n_repetitions=n_repetitions,
-        plot=False
+        ADP_policy_30, # policy currently under evaluation
+        n_experiments=100, # number of days to simulate
+        n_repetitions=3, # number of repetitions of the whole set of experiments
+        plot=True # include plots for each experiment (day)
     )
 
-    all_objectives = np.array(results["objectives"])
+    all_objectives  = np.array(results["objectives"]) 
+    mean_objectives = np.mean(all_objectives, axis=0)
+    std_objectives  = np.std(all_objectives, axis=0)
 
-    # Shape: n_repetitions x n_days
-    mean_cost_per_day = np.mean(all_objectives, axis=0)
-    total_mean_cost = np.mean(all_objectives)
+    print(mean_objectives)
 
-    print("\nDaily costs:")
-    for day, cost in enumerate(mean_cost_per_day):
-        print(f"Day {day + 1}: {cost:.2f}")
+    data = get_fixed_data()
+    T_out = data['outdoor_temperature']  
 
-    print("\nSummary:")
-    print(f"Number of days evaluated: {n_days}")
-    print(f"Number of repetitions: {n_repetitions}")
-    print(f"Average daily cost over all days: {total_mean_cost:.2f}")
+    t = 5
+    print(T_out[t])
 
     # plt.figure(figsize=(10, 5))
     # plt.errorbar(range(1, len(mean_objectives) + 1), mean_objectives, yerr=std_objectives, fmt='-o', capsize=5)

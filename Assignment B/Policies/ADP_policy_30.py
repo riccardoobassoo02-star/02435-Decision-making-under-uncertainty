@@ -2,6 +2,8 @@ from pyomo.environ import *
 from sklearn.cluster import KMeans
 import numpy as np
 import time
+import csv
+
 
 from Utils.PriceProcessRestaurant import price_model
 from Utils.OccupancyProcessRestaurant import next_occupancy_levels
@@ -60,10 +62,10 @@ def generate_samples(state, B, N_samples):
         cluster_prob = np.sum(labels == b) / N_samples
 
         data = {
-            "price": centroids[b, 0],
-            "occ_room_0": centroids[b, 1],
-            "occ_room_1": centroids[b, 2],
-            "prob": cluster_prob
+            "price": float(centroids[b, 0]),                 
+            "occ_room_0":  float(centroids[b, 1]),                 
+            "occ_room_1":  float(centroids[b, 2]),
+            "prob":  float(cluster_prob)
         }
 
         clusters.append(data)
@@ -71,43 +73,42 @@ def generate_samples(state, B, N_samples):
     return clusters
 
 
-def value_function(model, scenario_idx, scenarios, current_state):
-    # Approximate value of the next state using the same features used offline
-    hour = current_state["current_time"]
+def value_function(model, s_idx, scenarios, state):
+    """
+    Approximate next-state value:
 
-    temp_r1_next      = model.temp_next[0, scenario_idx]
-    temp_r2_next      = model.temp_next[1, scenario_idx]
-    humidity_next     = model.humidity_next[scenario_idx]
-    occ_room_0_next   = scenarios[scenario_idx]["occ_room_0"]
-    occ_room_1_next   = scenarios[scenario_idx]["occ_room_1"]
-    price_next        = scenarios[scenario_idx]["price"]
-    prev_price_next   = current_state["price_t"]
-    vent_counter_next = model.vent_counter_next
-    overrule_r1_next  = model.overrule_next[0, scenario_idx]
-    overrule_r2_next  = model.overrule_next[1, scenario_idx]
+    V(s_{t+1}) = eta[t+1]^T phi(s_{t+1})
 
-    # Same phi(state) used in the offline training
-    next_features = [
-        1,
-        (temp_r1_next - 22) / 8,
-        (temp_r2_next - 22) / 8,
-        (humidity_next - 30) / 70,
-        (occ_room_0_next - 20) / 30,
-        (occ_room_1_next - 10) / 20,
-        price_next / 12,
-        prev_price_next / 12,
-        vent_counter_next / 3,
-        overrule_r1_next,
-        overrule_r2_next
-    ]
+    EXACTLY aligned with offline phi().
+    """
 
-    # Use eta of the next stage, because the objective is c_t + V_{t+1}(s_{t+1})
-    value = sum(
-        eta_weights[hour + 1, i] * next_features[i]
-        for i in range(len(next_features))
-    )
+    t = state["current_time"]
+    w = eta_weights[t + 1]
 
-    return value
+    # State variables for scenario s in time t+1
+    T1_next    = model.temp_next[0, s_idx]
+    T2_next    = model.temp_next[1, s_idx]
+    H_next     = model.humidity_next[s_idx]
+    Occ1_next  = scenarios[s_idx]["occ_room_0"]
+    Occ2_next  = scenarios[s_idx]["occ_room_1"]
+    price_next = scenarios[s_idx]["price"]
+    vc_next    = model.vent_counter_next
+    lr1_next   = model.overrule_next[0, s_idx]
+    lr2_next   = model.overrule_next[1, s_idx]
+    
+    return (
+        w[0] * 1.0
+        + w[1] * (T1_next - 22) / 8
+        + w[2] * (T2_next - 22) / 8
+        + w[3] * (H_next - 30) / 70
+        + w[4] * (Occ1_next - 20) / 30
+        + w[5] * (Occ2_next - 10) / 20
+        + w[6] * price_next / 12
+        + w[7] * vc_next / 3
+        + w[8] * lr1_next
+        + w[9] * lr2_next
+    )   
+
 
 
 def solve_MILP(state, scenarios):
@@ -147,35 +148,29 @@ def solve_MILP(state, scenarios):
     model.y_ok   = Var(model.R, domain=Binary)
     model.overrule = Var(model.R, domain=Binary)
 
-    # Ventilation startup variable
-    model.s = Var(domain=Binary)
+    # Ventilation startup at time t
+    model.s = Var(domain=Binary) # binary variable indicating ventilation startup at time t (1 if ventilation starts at time t, 0 otherwise)
 
-    # Next-state variables
-    model.temp_next = Var(model.R, model.Scenarios, domain=Reals)
-    model.humidity_next = Var(model.Scenarios, domain=Reals)
-    model.vent_counter_next = Var(domain=NonNegativeReals)
+    # State Variables for each scenario at t+1
+    model.temp_next         = Var(model.R, model.Scenarios, domain=NonNegativeReals)
+    model.humidity_next     = Var(model.Scenarios)#, domain=NonNegativeReals)
+    model.vent_counter_next = Var(domain=NonNegativeIntegers)
+    model.overrule_next     = Var(model.R, model.Scenarios, domain=Binary)
+    model.y_low_next        = Var(model.R, model.Scenarios, domain=Binary)
+    model.y_ok_next         = Var(model.R, model.Scenarios, domain=Binary)
 
-    model.overrule_next = Var(model.R, model.Scenarios, domain=Binary)
-    model.y_low_next = Var(model.R, model.Scenarios, domain=Binary)
-    model.y_ok_next = Var(model.R, model.Scenarios, domain=Binary)
 
-    # Immediate electricity cost
-    immediate_cost = current_price * (
-        model.p[0] + model.p[1] + P_vent * model.v
-    )
+    # Objective function
+    immediate_reward = current_price * (P_vent * model.v + model.p[0] + model.p[1])
+    future_reward    = sum(value_function(model, s, scenarios, state) for s in model.Scenarios) #if len(scenarios) > 0 else 0
 
-    # Current high-temperature detection
-    model.c1 = Constraint(
-        model.R,
-        rule=lambda m, r:
-            current_temp[r] >= T_high - M_temp * (1 - m.y_high[r])
-    )
+    model.obj = Objective(rule = immediate_reward + future_reward, sense=minimize)
 
-    model.c2 = Constraint(
-        model.R,
-        rule=lambda m, r:
-            current_temp[r] <= T_high + M_temp * m.y_high[r]
-    )
+
+    # Constraints
+    # 1-2. Temperature cutoff and heater deactivation:
+    model.c1 = Constraint(model.R, rule=lambda model, r: current_temp[r] >= T_high - M_temp * (1 - model.y_high[r]))
+    model.c2 = Constraint(model.R, rule=lambda model, r: current_temp[r] <= T_high + M_temp * model.y_high[r])
 
     # If current temperature is too high, heater is forced to zero
     model.c3 = Constraint(
@@ -254,42 +249,29 @@ def solve_MILP(state, scenarios):
 
     model.c16 = Constraint(expr=model.v >= v_inertia)
 
-    # Humidity-triggered ventilation
-    model.c17 = Constraint(
-        expr=current_humidity <= H_high + M_hum * model.v
-    )
+    # 17. Humidity-Triggered Ventilation
+    model.c17 = Constraint(rule = current_humidity <= H_high + M_hum * model.v)
 
-    if t < L - 1:
-        # Temperature dynamics from t to t+1
-        # Occupancy is the current known occupancy, consistently with the offline training
-        model.c18 = Constraint(
-            model.R,
-            model.Scenarios,
-            rule=lambda m, r, s:
-                m.temp_next[r, s] ==
-                current_temp[r]
-                + zeta_conv * m.p[r]
-                + zeta_exch * (current_temp[1 - r] - current_temp[r])
-                + zeta_loss * (T_out[t] - current_temp[r])
-                + zeta_occ * current_occ[r]
-                - zeta_cool * m.v
-        )
 
-        # Humidity dynamics from t to t+1
-        model.c19 = Constraint(
-            model.Scenarios,
-            rule=lambda m, s:
-                m.humidity_next[s] ==
-                current_humidity
-                + eta_occ * (current_occ[0] + current_occ[1])
-                - eta_vent * m.v
-        )
+    #### CONSTRAINTS FOR NEXT STATE (montecarlo scenarios) ####
+    # 18. Temperature dynamics at t+1 for each scenario
+    model.c18 = Constraint(model.R, model.Scenarios, rule=lambda model, r, s: (model.temp_next[r, s] == current_temp[r] + 
+                                                                        zeta_exch * (current_temp[1-r] - current_temp[r]) -
+                                                                        zeta_loss * (current_temp[r] - T_out[t]) +
+                                                                        zeta_conv * model.p[r] - 
+                                                                        zeta_cool * model.v +
+                                                                        zeta_occ * scenarios[s]["occ_room_" + str(r)])
+                                                                        if t < 9 else Constraint.Skip)
 
-        # Ventilation counter update
-        # If v = 1, counter increases by 1; if v = 0, counter resets to 0
-        model.c20 = Constraint(
-            expr=model.vent_counter_next == current_vent_counter * model.v + model.v
-        )
+
+    # 19. Humidity dynamics at t+1 for each scenario
+    model.c19 = Constraint(model.Scenarios, rule=lambda model, s: 
+                                        (model.humidity_next[s] == current_humidity + 
+                                        eta_occ * sum(scenarios[s]["occ_room_" + str(r)] for r in model.R) - 
+                                        eta_vent * model.v) if t < 9 else Constraint.Skip)
+
+    # 20. Vent counter at t+1 for ALL scenarios
+    model.c20 = Constraint(rule = model.vent_counter_next == model.v * (current_vent_counter + 1))
 
         # Next low-temperature detection
         model.c21 = Constraint(
@@ -385,19 +367,18 @@ def solve_MILP(state, scenarios):
 def select_action(state):
     start_time = time.time()
 
-    state = state.copy()
+    t = state["current_time"]
+    
+    if t == 9:  
+        scenarios = []  
+    else:
+        scenarios = generate_samples(state, B=100, N_samples=1_000)
 
-    # Fallback in case the environment does not provide price_previous
-    if "price_previous" not in state:
-        state["price_previous"] = state["price_t"]
+    
+    p1, p2, v = solve_MILP(state, scenarios)
 
-    scenarios = generate_samples(state, B=5, N_samples=500)
-
-    try:
-        p1, p2, v = solve_MILP(state, scenarios)
-    except Exception:
-        p1, p2, v = 0.0, 0.0, 0
-
+    # print(f"Total policy time: {time.time() - start_time:.2f} s")
+    
     HereAndNowActions = {
         "HeatPowerRoom1": p1,
         "HeatPowerRoom2": p2,
@@ -405,3 +386,5 @@ def select_action(state):
     }
 
     return HereAndNowActions
+
+
