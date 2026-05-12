@@ -32,138 +32,200 @@ heater_vent_coeff= data7['heat_vent_coeff']# Ventilation cooling effect: # Tempe
 heat_occupancy_coeff = data7['heat_occupancy_coeff'] # Occupancy heat gain: # Temperature increase per hour per person in the room (°C)
 T_outdoor = data7['outdoor_temperature']# Outdoor temperature (°C)
 
-
-#----------------------------------------------------------------------------
-
-#Sub section : Each Store ssolves their own sub-optimization problem
-
-#----------------------------------------------------------------------------
-def solve_store_subproblem(n, lambda_t_current, data7, occupancy_df):
+#------------------------------------------------------------------------------
+# 1. Centralized Problem (The Benchmark)
+#------------------------------------------------------------------------------
+def solve_centralized_problem(data7, occupancy_df):
     model = ConcreteModel()
-
+    model.N = RangeSet(1, 15) # 15 stores
     model.R = RangeSet(1, 2)
     model.T = RangeSet(0, data7['num_timeslots'] - 1)
 
-    # Variables
+    model.p = Var(model.N, model.R, model.T, bounds=(0, data7['heating_max_power']))
+    model.Temp = Var(model.N, model.R, model.T)
+
+    def obj_rule(m):
+        return sum((n + 1) * (m.Temp[n, r, t] - data7['Temperature_reference'])**2
+                   for n in m.N for r in m.R for t in m.T)
+    model.obj = Objective(rule=obj_rule, sense=minimize)
+
+    def mall_limit_rule(m, t):
+        return sum(m.p[n, r, t] for n in m.N for r in m.R) <= data7['P_mall']
+    model.limit = Constraint(model.T, rule=mall_limit_rule)
+
+    def dynamics_rule(m, n, r, t):
+        if t == 0: return m.Temp[n, r, t] == data7['initial_temperature']
+        r_prime = 2 if r == 1 else 1
+        return m.Temp[n, r, t] == m.Temp[n, r, t-1] + \
+               data7['heat_exchange_coeff']*(m.Temp[n, r_prime, t-1] - m.Temp[n, r, t-1]) - \
+               data7['thermal_loss_coeff']*(m.Temp[n, r, t-1] - data7['outdoor_temperature'][t-1]) + \
+               data7['heating_efficiency_coeff']*m.p[n, r, t-1] - \
+               data7['heat_vent_coeff']*1 + \
+               data7['heat_occupancy_coeff']*occupancy_df.iloc[r-1, t-1]
+    model.cons = Constraint(model.N, model.R, model.T, rule=dynamics_rule)
+
+    SolverFactory('gurobi').solve(model)
+    return value(model.obj)
+
+# Get baseline before starting
+print("Solving Centralized Benchmark...")
+centralized_optimal_obj = solve_centralized_problem(data7, occupancy)
+
+#------------------------------------------------------------------------------
+# 2. Store Sub-Problem (The Distributed Agent)
+#------------------------------------------------------------------------------
+def solve_store_subproblem(n, lambda_t_current, data7, occupancy_df):
+    model = ConcreteModel()
+    model.R = RangeSet(1, 2)
+    model.T = RangeSet(0, data7['num_timeslots'] - 1)
+
+    # Local Variables
     model.p = Var(model.R, model.T, bounds=(0, data7['heating_max_power']))
     model.Temp = Var(model.R, model.T)
 
-    # 1. Objective: Minimize (Discomfort + Power Tax)
-    def obj_rule(m):
-        w_n = n + 1
-        # Comfort Penalty
-        comfort = sum(w_n * (m.Temp[r, t] - data7['Temperature_reference']) ** 2
-                      for r in m.R for t in m.T)
-        # Coordination Tax (Dual variable logic)
-        tax = sum(lambda_t_current[t] * sum(m.p[r, t] for r in m.R)
-                  for t in m.T)
-
-        # ADD THIS: A tiny penalty to ensure p[r,9] is initialized to 0
-        tiny_penalty = sum(m.p[r, t] * 1e-9 for r in m.R for t in m.T)
-
-        return comfort + tax + tiny_penalty
-
-    model.obj = Objective(rule=obj_rule, sense=minimize)
-
-    # 2. Temperature Dynamics
+    # Temperature Dynamics (Store-specific)
     def temp_dynamics_rule(m, r, t):
-        if t == 0:
-            return m.Temp[r, t] == data7['initial_temperature']
-
+        if t == 0: return m.Temp[r, t] == data7['initial_temperature']
         r_prime = 2 if r == 1 else 1
-
-        # NOTE: t-1 ensures we use the state/action from the previous hour
-        # to define the temperature at the current hour 't'
         return m.Temp[r, t] == m.Temp[r, t - 1] + \
             data7['heat_exchange_coeff'] * (m.Temp[r_prime, t - 1] - m.Temp[r, t - 1]) - \
             data7['thermal_loss_coeff'] * (m.Temp[r, t - 1] - data7['outdoor_temperature'][t - 1]) + \
             data7['heating_efficiency_coeff'] * m.p[r, t - 1] - \
             data7['heat_vent_coeff'] * 1 + \
             data7['heat_occupancy_coeff'] * occupancy_df.iloc[r - 1, t - 1]
-
     model.temp_cons = Constraint(model.R, model.T, rule=temp_dynamics_rule)
 
-    # 3. Solver and Error Handling
+    # Discomfort Calculation (used for System Obj)
+    comfort_penalty = sum((n + 1) * (model.Temp[r, t] - data7['Temperature_reference']) ** 2
+                          for r in model.R for t in model.T)
+
+    # Local Objective: Discomfort + Multiplier Cost + Tiny Penalty for stability
+    model.obj = Objective(expr=comfort_penalty +
+                               sum(lambda_t_current[t] * sum(model.p[r, t] for r in model.R) for t in model.T) +
+                               sum(model.p[r, t] * 1e-9 for r in model.R for t in model.T),
+                          sense=minimize)
+
     solver = SolverFactory('gurobi')
     results = solver.solve(model)
 
-    # Check if the solver actually found a solution
-    if (results.solver.status == SolverStatus.ok) and \
-            (results.solver.termination_condition == TerminationCondition.optimal):
-        return [value(sum(model.p[r, t] for r in model.R)) for t in model.T]
+    if (results.solver.status == SolverStatus.ok) and (
+            results.solver.termination_condition == TerminationCondition.optimal):
+        p_values = [value(sum(model.p[r, t] for r in model.R)) for t in model.T]
+        discomfort_value = value(comfort_penalty)
+        return p_values, discomfort_value
     else:
-        # If infeasible, this prints the reason so you can debug the physics
-        print(f"--- Store {n} Solver Error ---")
-        print(f"Status: {results.solver.status}")
-        print(f"Condition: {results.solver.termination_condition}")
+        return [0.0] * data7['num_timeslots'], 0.0
 
-        # Return zeros so the Master Loop doesn't crash, allowing you to see the error
-        return [0.0 for t in model.T]
+#------------------------------------------------------------------------------
+# 3. Master Loop: Sensitivity Analysis
+#------------------------------------------------------------------------------
+alpha_set = [0.001, 0.01, 0.1, 1, 10, 'adaptive']
+results = {a: {'obj': [], 'lambda': [], 'viol': []} for a in alpha_set}
 
-# -----------------------------------------------------------------------------------
+for alpha_val in alpha_set:
+    print(f"Testing alpha: {alpha_val}")
+    lambda_t = np.zeros(data7['num_timeslots'])
 
-# Coordinator simulation ( k = 100 iterations / alpha = {0.001....., 10}
+    for k in range(100):
+        total_p = np.zeros(data7['num_timeslots'])
+        current_iter_system_discomfort = 0
 
-# -----------------------------------------------------------------------------------
+        # Step size logic
+        step = (5.0 / (1 + k)) if alpha_val == 'adaptive' else alpha_val
 
-N_stores = 15
-alpha_0 = 0.1
-lambda_t = np.zeros(data7['num_timeslots'])
+        # 1. Solve each store independently
+        for n in range(15):
+            p_n, discomfort_n = solve_store_subproblem(n, lambda_t, data7, occupancy)
+            total_p += np.array(p_n)
+            current_iter_system_discomfort += discomfort_n
 
-# Containers for plotting
-power_history = []
-violation_history = []
+        # 2. Store Metrics for this iteration
+        results[alpha_val]['obj'].append(current_iter_system_discomfort)
+        results[alpha_val]['lambda'].append(lambda_t.copy())
+        results[alpha_val]['viol'].append(total_p - data7['P_mall'])
 
-for k in range(5):
-    alpha_k = alpha_0 / (1 + k)
-    total_mall_power = np.zeros(data7['num_timeslots'])
+        # 3. Update Lagrange Multipliers (Coordinator)
+        for t in range(data7['num_timeslots']):
+            violation = total_p[t] - data7['P_mall']
+            lambda_t[t] = max(0, lambda_t[t] + step * violation)
 
-    for n in range(N_stores):
-        p_n_schedule = solve_store_subproblem(n, lambda_t, data7, occupancy)
-        total_mall_power += np.array(p_n_schedule)
+#------------------------------------------------------------------------------
+# 4. Plots
+#------------------------------------------------------------------------------
 
-    # Calculate violation: Total - Limit
-    current_violation = total_mall_power - data7['P_mall']
+# PLOT 1: System Objective
+plt.figure(figsize=(10, 5))
+for a in alpha_set:
+    plt.plot(results[a]['obj'], label=f'alpha={a}')
+plt.axhline(y=centralized_optimal_obj, color='r', linestyle='--', label='Centralized Optimal')
+plt.title("System Objective Value (Social Welfare) across Iterations")
+plt.xlabel("Iteration (k)"); plt.ylabel("Objective Value"); plt.legend(); plt.show()
 
-    # SAVE results for plotting
-    power_history.append(total_mall_power.copy())
-    violation_history.append(current_violation.copy())
+# PLOT 2: Multiplier Evolution (using alpha=0.1 as example)
+plt.figure(figsize=(10, 5))
+lambda_history = np.array(results[0.1]['lambda'])
+for t in range(data7['num_timeslots']):
+    plt.plot(lambda_history[:, t], label=f'Slot t={t}')
+plt.title("Evolution of Lagrange Multipliers (λ_t) for alpha=0.1")
+plt.xlabel("Iteration (k)"); plt.ylabel("Price λ_t"); plt.legend(); plt.show()
 
+# PLOT 3: Violations (using alpha=0.1 as example)
+plt.figure(figsize=(10, 5))
+viol_history = np.array(results[0.1]['viol'])
+for t in range(data7['num_timeslots']):
+    plt.plot(viol_history[:, t], label=f'Slot t={t}')
+plt.axhline(y=0, color='black', linewidth=1)
+plt.title("Evolution of Power Violations per Timeslot (alpha=0.1)")
+plt.xlabel("Iteration (k)"); plt.ylabel("Violation [kW]"); plt.legend(); plt.show()
+
+# ------------------------------------------------------------------------------
+# 5. FINAL PLOT: Power Distribution per Store (Adaptive Alpha, Final Iteration)
+# ------------------------------------------------------------------------------
+
+# We will re-run a quick capture for the 'adaptive' case to get individual store data
+final_store_power = []  # To store (15 stores x 10 hours)
+lambda_final = np.zeros(data7['num_timeslots'])
+alpha_0 = 5
+
+# Run the 100 iterations one last time specifically to extract store-level data
+for k in range(100):
+    total_p_iter = np.zeros(data7['num_timeslots'])
+    step = alpha_0 / (1 + k)
+
+    # Temporary list to hold this iteration's store choices
+    current_iter_stores = []
+
+    for n in range(15):
+        p_n, _ = solve_store_subproblem(n, lambda_final, data7, occupancy)
+        total_p_iter += np.array(p_n)
+        if k == 99:  # Only save the very last iteration
+            current_iter_stores.append(p_n)
+
+    # Update lambda
     for t in range(data7['num_timeslots']):
-        lambda_t[t] = max(0, lambda_t[t] + alpha_k * current_violation[t])
+        lambda_final[t] = max(0, lambda_final[t] + step * (total_p_iter[t] - data7['P_mall']))
 
-    max_violation = max(current_violation)
-    print(f"Iteration {k}: Max Power Over-Limit = {max_violation:.2f} kW")
+    if k == 99:
+        final_store_power = np.array(current_iter_stores)
 
-#----------------------------------------------------------------------------------
+# Plotting
+plt.figure(figsize=(12, 6))
+time_slots_range = range(data7['num_timeslots'])
+bottom_stack = np.zeros(data7['num_timeslots'])
 
-#Plotting Module
+# Use a colormap to distinguish 15 stores
+colors = plt.cm.viridis(np.linspace(0, 1, 15))
 
-#----------------------------------------------------------------------------------
+for n in range(15):
+    plt.bar(time_slots_range, final_store_power[n, :], bottom=bottom_stack,
+            label=f'Store {n + 1} (w={n + 1})', color=colors[n])
+    bottom_stack += final_store_power[n, :]
 
-# Create a figure with two subplots
-fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
-
-# Plot 1: Total Mall Power vs Limit (Final Iteration)
-time_axis = range(data7['num_timeslots'])
-ax1.step(time_axis, power_history[-1], where='post', label='Aggregated Power (Final Iter)', color='blue', linewidth=2)
-ax1.axhline(y=data7['P_mall'], color='red', linestyle='--', label='Mall Power Limit ($P^{mall}$)')
-ax1.set_title("Aggregated Mall Power Consumption", fontsize=12)
-ax1.set_xlabel("Time Slots (t)", fontsize=10)
-ax1.set_ylabel("Power [kW]", fontsize=10)
-ax1.grid(True, alpha=0.3)
-ax1.legend()
-
-# Plot 2: Evolution of Violations across Iterations
-for k_idx, viol in enumerate(violation_history):
-    ax2.plot(time_axis, viol, label=f'Iteration {k_idx}', marker='o', markersize=4)
-
-ax2.axhline(y=0, color='black', linestyle='-', linewidth=1) # The 0-line represents no violation
-ax2.set_title("Evolution of Mall Limit Violations", fontsize=12)
-ax2.set_xlabel("Time Slots (t)", fontsize=10)
-ax2.set_ylabel("Violation ($\sum p_{n,t} - P^{mall}$) [kW]", fontsize=10)
-ax2.grid(True, alpha=0.3)
-ax2.legend(loc='upper right', fontsize='small', ncol=2)
-
+plt.axhline(y=data7['P_mall'], color='red', linestyle='--', linewidth=2, label='Mall Limit')
+plt.title("Final Power Allocation per Store (Adaptive Step Size)", fontsize=14)
+plt.xlabel("Time Slot (Hour)", fontsize=12)
+plt.ylabel("Power Consumption [kW]", fontsize=12)
+plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', ncol=1, fontsize='small')
+plt.grid(axis='y', alpha=0.3)
 plt.tight_layout()
 plt.show()
