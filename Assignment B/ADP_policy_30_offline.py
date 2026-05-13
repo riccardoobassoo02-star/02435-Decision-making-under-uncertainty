@@ -212,27 +212,23 @@ def solve_forward_pass_milp(state, eta, K_policy=5):
     t = state["current_time"]
     price = state["price_t"]
 
-    # ────────────────────────────────────────────────────────────────────
+
     # Model
-    # ────────────────────────────────────────────────────────────────────
     model = ConcreteModel()
 
     # Sets
     model.R = RangeSet(0, 1)               # rooms
     model.S = RangeSet(0, K_policy - 1)    # exogenous scenarios
 
-    # ────────────────────────────────────────────────────────────────────
+    
     # Decision variables (here-and-now, at time t)
-    # ────────────────────────────────────────────────────────────────────
     model.p = Var(model.R, domain=NonNegativeReals, bounds=(0, P_max))  # heating power
     model.v = Var(domain=Binary)                                        # ventilation ON/OFF
 
-    # ────────────────────────────────────────────────────────────────────
     # Next-state variables (at time t+1) — only the endogenous part
     # depends on (p, v); the exogenous part (Occ, price) is sampled.
     # Since dynamics are linear in (p, v), next-state is scenario-independent
     # for the endogenous variables.
-    # ────────────────────────────────────────────────────────────────────
     model.temp = Var(model.R, domain=Reals)   # indoor temperature in room r at t+1
     model.hum  = Var(domain=NonNegativeReals) # indoor humidity at t+1
     model.vc   = Var(domain=NonNegativeReals) # ventilation counter at t+1
@@ -242,9 +238,7 @@ def solve_forward_pass_milp(state, eta, K_policy=5):
     model.temp_ok  = Var(model.R, domain=Binary)   # 1 if temp[r] > T_ok
     model.overrule = Var(model.R, domain=Binary)   # next overrule state
 
-    # ────────────────────────────────────────────────────────────────────
     # Apply current overrule constraints (state-dependent action restrictions)
-    # ────────────────────────────────────────────────────────────────────
     if 0 < state["vent_counter"] < min_up_time:
         model.v.fix(1)
 
@@ -261,9 +255,8 @@ def solve_forward_pass_milp(state, eta, K_policy=5):
     elif state["low_override_r2"] and state["T2"] < T_ok:
         model.p[1].fix(P_max)
 
-    # ────────────────────────────────────────────────────────────────────
-    # Constraints — same structure as Task 1 OIH MILP
-    # ────────────────────────────────────────────────────────────────────
+
+    # Constraints - same structure as Task 1 OIH MILP
 
     # 1-2. Temperature dynamics (one-step transition from state to t+1)
     model.c_temp = Constraint(model.R, rule=lambda m, r:
@@ -312,9 +305,8 @@ def solve_forward_pass_milp(state, eta, K_policy=5):
     # 21. Humidity-triggered ventilation already enforced above via model.v.fix(1)
     # when state["H"] > H_high. No additional constraint needed.
 
-    # ────────────────────────────────────────────────────────────────────
+
     # Objective: immediate cost + expected approximate future value
-    # ────────────────────────────────────────────────────────────────────
     immediate_cost = price * (model.p[0] + model.p[1] + P_vent * model.v)
 
     if t == L - 1:
@@ -348,9 +340,8 @@ def solve_forward_pass_milp(state, eta, K_policy=5):
 
         model.obj = Objective(expr=immediate_cost + future_value, sense=minimize)
 
-    # ────────────────────────────────────────────────────────────────────
+
     # Solve
-    # ────────────────────────────────────────────────────────────────────
     solver = SolverFactory("gurobi")
     solver.solve(model, options={"OutputFlag": 0})
 
