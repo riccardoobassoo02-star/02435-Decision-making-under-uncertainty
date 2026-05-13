@@ -154,6 +154,10 @@ def run_environment(policy, n_experiments=1, n_repetitions=1, plot=False):
     Run the environment simulation for a given policy.
     Prints the running average daily cost during the simulation.
     """
+    # Import OIH results for comparison
+    oih_daily_costs = np.genfromtxt("results/OIH_daily_costs.csv", delimiter=",")
+
+
     # Import data
     data = v2_SystemCharacteristics.get_fixed_data()
     occupancy1_matrix = np.genfromtxt("Data/OccupancyRoom1.csv", delimiter=",", skip_header=1)
@@ -330,6 +334,7 @@ def run_environment(policy, n_experiments=1, n_repetitions=1, plot=False):
                 f"Rep {rep + 1}, Day {day + 1}: "
                 f"daily cost = {objective_value:.2f}, "
                 f"running average = {running_mean:.2f}",
+                f" | OIH daily cost = {oih_daily_costs[day]:.2f}",
                 flush=True
             )
 
@@ -367,8 +372,8 @@ if __name__ == "__main__":
 
     price_matrix = price_data[:, 1:]
 
-    n_days = price_matrix.shape[0]
-    n_repetitions = 1
+    n_days = 3 #price_matrix.shape[0]
+    n_repetitions = 3
 
     results = run_environment(
         ADP_policy_30, # policycurrently under evaluation
