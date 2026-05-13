@@ -1,4 +1,4 @@
-from Utils import v2_SystemCharacteristics, Checks
+from Utils import v2_SystemCharacteristics, v2_Checks
 from Policies import SP_policy_30, ADP_policy_30
 import numpy as np
 import matplotlib.pyplot as plt
@@ -275,7 +275,7 @@ def run_environment(policy, n_experiments=1, n_repetitions=1, plot=False):
                     2: HEATING_MAX_POWER
                 }
 
-                decision = Checks.check_and_sanitize_action(
+                decision = v2_Checks.check_and_sanitize_action(
                     policy,
                     state,
                     POWER_MAX
