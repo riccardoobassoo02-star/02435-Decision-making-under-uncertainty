@@ -146,6 +146,7 @@ def compute_cost(state, action):
         action["p1"] + action["p2"] + P_vent * action["v"]
     )
 
+# forward fast not used anymore
 def solve_forward_pass_fast(state, eta):
     """Analytical solution: choose p1, p2, v by sign of their cost coefficient."""
     t = state["current_time"]
@@ -191,7 +192,6 @@ def solve_forward_pass_fast(state, eta):
         v = 1
 
     return {"p1": p1, "p2": p2, "v": v}
-
 
 def solve_forward_pass_milp(state, eta, K_policy=5):
     """
