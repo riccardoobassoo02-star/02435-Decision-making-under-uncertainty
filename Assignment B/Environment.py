@@ -1,16 +1,14 @@
 from Utils import v2_SystemCharacteristics, v2_Checks, plotting
-from Policies import SP_policy_30, ADP_policy_30, DUMMY_policy_30
 import numpy as np
-import time
 import warnings
 import sys
-from Utils.v2_SystemCharacteristics import get_fixed_data
 warnings.filterwarnings("ignore")
 
 ## IMPORTANT: THINGS TO CHANGE BEFORE SUBMISSION:
 # -  CHANGE DATA PATH, SO THE DATA IS IN THE SAME DIRECTORY THAN THE ENVIRONMENT
 # -  CHANGE PATHS OF ALL IMPORTS (EVERYTHING IN THE SAME FOLDER)
 # -  CHANGE OUTPUT OF ENVIRONMENT TO RETURN JUST THE AVG OBJECTIVE VALUE
+# - CHANGE INPUT OF ENVIRONMENT TO JUST TAKE THE POLICY AND NUMBER OF EXPERIMENTS, NOT START AND END DAYS 
 
 DATA_DIRECTORY = "Data/"
 
@@ -103,7 +101,7 @@ def verify_heater_actions(decision_P, data, temperature_room, is_override_room, 
     
 
 
-def run_environment(policy, n_experiments, plot=False):  
+def run_environment(policy, start, end, plot=False):  
     """
     Run the environment simulation for a given policy.
     Prints the running average daily cost during the simulation.
@@ -136,7 +134,7 @@ def run_environment(policy, n_experiments, plot=False):
     daily_logs = [] 
          
     # Simulation
-    for day in range(n_experiments): 
+    for day in range(start, end): 
         vent_counter = 0
         is_override_room1 = False
         is_override_room2 = False
@@ -149,7 +147,11 @@ def run_environment(policy, n_experiments, plot=False):
             "P2": [],
             "T1": [],
             "T2": [],
-            "H": []
+            "H": [],
+            "objective": [],
+            "price": [],
+            "occ1": [],
+            "occ2": []
         }
 
         for hour in range(NUM_TIMESLOTS):
@@ -203,7 +205,7 @@ def run_environment(policy, n_experiments, plot=False):
 
      
 
-            # Ipdate overrule controllers state
+            # Update overrule controllers state
             is_override_room1 = update_overrule_controler_state(
                 is_override_room1,
                 temperature_room1,
@@ -247,9 +249,10 @@ def run_environment(policy, n_experiments, plot=False):
             verify_heater_actions(P2, data, temperature_room2, is_override_room2, HEATING_MAX_POWER)
 
             # Calculate objective function (electricity cost)
-            objective_value += price_matrix[day][hour] * (
+            hourly_cost = price_matrix[day][hour] * (
                 V * data["ventilation_power"] + P1 + P2
             )
+            objective_value += hourly_cost
 
             # Save hourly logs
             day_log["hour"].append(hour)
@@ -259,6 +262,10 @@ def run_environment(policy, n_experiments, plot=False):
             day_log["T1"].append(temperature_room1)
             day_log["T2"].append(temperature_room2)
             day_log["H"].append(humidity)
+            day_log["objective"].append(hourly_cost)
+            day_log["price"].append(state["price_t"])
+            day_log["occ1"].append(state["Occ1"])
+            day_log["occ2"].append(state["Occ2"])
 
 
         # Collect daily logs
@@ -269,13 +276,22 @@ def run_environment(policy, n_experiments, plot=False):
         # Show daily results and plots
         running_mean = np.mean(daily_objective_values)
 
+        # Deviation from OIH cost in percentage (How much margin of improvement is left compared to OIH, in percentage)
+        deviation = ((round(objective_value, 2) - round(oih_daily_costs[day], 2))/round(oih_daily_costs[day], 2))*100
+
+
         print(
             f"Day {day + 1:>3}: "
             f"daily cost = {objective_value:>7.2f}"
+            f" | Improvement margin = {deviation:>7.2f}%"
             f" | OIH daily cost = {oih_daily_costs[day]:>7.2f}"
             f" | running average = {running_mean:>7.2f}",
             flush=True
         )
+
+        if round(objective_value, 2) < round(oih_daily_costs[day], 2):
+            print("\nSomething went wrong, the policy's daily cost is below the OIH cost, which should be impossible")
+            sys.exit(1)
 
         if plot:
             temp_thresholds = (
@@ -301,49 +317,5 @@ def run_environment(policy, n_experiments, plot=False):
         "objectives": daily_objective_values,
         "logs": daily_logs
     }
-
-
-if __name__ == "__main__":
-    price_data = np.genfromtxt(
-        "Data/v2_PriceData.csv",
-        delimiter=",",
-        skip_header=1
-    )
-
-    price_matrix = price_data[:, 1:]
-
-    n_days = price_matrix.shape[0]
-    n_repetitions = 3
-
-    avg_objective_value, results = run_environment(
-        ADP_policy_30, # policycurrently under evaluation
-        n_experiments=n_days, # number of days to simulate
-        plot=False # include plots for each day
-    )
-
-    all_objectives = np.array(results["objectives"])
-
-
-    # mean_cost_per_day = np.mean(all_objectives, axis=0)
-    # total_mean_cost = np.mean(all_objectives)
-
-    # print("\nMean cost per day:")
-    # for day, cost in enumerate(mean_cost_per_day):
-    #     print(f"Day {day + 1}: {cost:.2f}")
-
-    print("\nSummary:")
-    print(f"Number of days evaluated: {n_days}")
-    print(f"Number of repetitions: {n_repetitions}")
-    print(f"Average daily cost over all days: {avg_objective_value:.2f}")
-
-    # plt.figure(figsize=(10, 5))
-    # plt.errorbar(range(1, len(mean_objectives) + 1), mean_objectives, yerr=std_objectives, fmt='-o', capsize=5)
-    # plt.title('Objective Value Across Experiments')
-    # plt.xlabel('Experimento')
-    # plt.ylabel('Objective Value')
-    # plt.grid(True)
-    # plt.tight_layout()
-    # plt.show()
-
 
 
