@@ -6,13 +6,14 @@ import pandas as pd
 
 FILE_DIR = Path(__file__).parent  # directory where this file is located
 DATA_DIR = FILE_DIR / 'Data'  # name of the folder containing csv to be imported
-
+OUTPUT_DIR = FILE_DIR / "results"  # name of the folder where results will be saved
 
 # Import data
 data = get_fixed_data()
 occupancy1_matrix = np.genfromtxt("Data/OccupancyRoom1.csv", delimiter=",", skip_header=1)
 occupancy2_matrix = np.genfromtxt("Data/OccupancyRoom2.csv", delimiter=",", skip_header=1)
-price_data        = np.genfromtxt("Data/v2_PriceData.csv",   delimiter=",", skip_header=1)
+raw_price_data = np.genfromtxt("Data/v2_PriceData.csv", delimiter=",", skip_header=1)
+price_data     = raw_price_data[:, 1:]   # now price_data[day, 0] = price_t0, ..., price_data[day, 9] = price_t9
 
 # Join data to index by room
 occupancy = [occupancy1_matrix, occupancy2_matrix]
@@ -169,6 +170,14 @@ for day in range(100):
                 'Humidity': hum_opt[t],
         }
         all_rows.append(row)
+
+# Save daily costs for environment comparison
+np.savetxt(
+    OUTPUT_DIR / 'OIH_daily_costs.csv',
+    daily_costs,
+    delimiter=","
+)
+print("Daily costs saved to OIH_daily_costs.csv")
 
 results_df = pd.DataFrame(all_rows)
 OUTPUT_DIR = FILE_DIR/ "results" 
