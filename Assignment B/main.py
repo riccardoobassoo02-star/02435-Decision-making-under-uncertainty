@@ -98,11 +98,11 @@ def run_environment_in_parallel(policy, n_experiments, n_workers):
 
 
 # Variables to set before running the environment:
-POLICY          = SP_policy_30_v2
+POLICY          = ADP_policy_30
 N_EXPERIMENTS   = 100
 PLOT_RESULTS    = False
 RUN_IN_PARALLEL = True
-N_WORKERS       = 4
+N_WORKERS       = 8
 
 
 if __name__ == "__main__":
