@@ -3,7 +3,9 @@
 Created on Mon Nov 17 11:14:31 2025
 
 @author: geots
+Updating B
 """
+
 import time
 from pyomo.environ import *
 from sklearn.cluster import KMeans
