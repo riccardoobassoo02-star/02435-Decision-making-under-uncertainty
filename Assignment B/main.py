@@ -1,4 +1,4 @@
-from Policies import SP_policy_30, SP_policy_30_v2, ADP_policy_30, DUMMY_policy_30
+from Policies import SP_policy_30, SP_policy_30_v2, ADP_policy_30, DUMMY_policy_30, DL_policy_30
 from Environment import run_environment
 from importlib import import_module
 
@@ -98,10 +98,10 @@ def run_environment_in_parallel(policy, n_experiments, n_workers):
 
 
 # Variables to set before running the environment:
-POLICY          = ADP_policy_30
+POLICY          = DL_policy_30
 N_EXPERIMENTS   = 100
 PLOT_RESULTS    = False
-RUN_IN_PARALLEL = True
+RUN_IN_PARALLEL = False
 N_WORKERS       = 8
 
 
@@ -114,7 +114,8 @@ if __name__ == "__main__":
         print("Running in parallel with", N_WORKERS, "workers")
         avg_objective_value, results = run_environment_in_parallel(
             policy=POLICY,
-            n_experiments=N_EXPERIMENTS,
+            start=0,
+            end=N_EXPERIMENTS,
             n_workers=N_WORKERS
         )
 
@@ -122,7 +123,8 @@ if __name__ == "__main__":
         print("Running sequentially")
         avg_objective_value, results = run_environment(
             policy=POLICY,
-            n_experiments=N_EXPERIMENTS,
+            start=0,
+            end=N_EXPERIMENTS,
             plot=PLOT_RESULTS
         )
 
