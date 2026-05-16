@@ -101,7 +101,7 @@ def run_environment_in_parallel(policy, n_experiments, n_workers):
 POLICY          = DL_policy_30
 N_EXPERIMENTS   = 100
 PLOT_RESULTS    = False
-RUN_IN_PARALLEL = False
+RUN_IN_PARALLEL = True
 N_WORKERS       = 8
 
 
@@ -114,10 +114,9 @@ if __name__ == "__main__":
         print("Running in parallel with", N_WORKERS, "workers")
         avg_objective_value, results = run_environment_in_parallel(
             policy=POLICY,
-            start=0,
-            end=N_EXPERIMENTS,
+            n_experiments=N_EXPERIMENTS,
             n_workers=N_WORKERS
-        )
+        )   
 
     else:
         print("Running sequentially")
