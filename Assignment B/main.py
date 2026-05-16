@@ -1,4 +1,4 @@
-from Policies import SP_policy_30, SP_policy_30_v2, ADP_policy_30, DUMMY_policy_30, DL_policy_30
+from Policies import SP_policy_30, SP_policy_30_v2, ADP_policy_30, DUMMY_policy_30, Two_stage
 from Environment import run_environment
 from importlib import import_module
 
@@ -98,7 +98,7 @@ def run_environment_in_parallel(policy, n_experiments, n_workers):
 
 
 # Variables to set before running the environment:
-POLICY          = DL_policy_30
+POLICY          = Two_stage
 N_EXPERIMENTS   = 100
 PLOT_RESULTS    = False
 RUN_IN_PARALLEL = True
