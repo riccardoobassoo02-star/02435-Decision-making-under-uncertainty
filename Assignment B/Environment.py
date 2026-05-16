@@ -12,6 +12,21 @@ warnings.filterwarnings("ignore")
 
 DATA_DIRECTORY = "Data/"
 
+data = v2_SystemCharacteristics.get_fixed_data()
+
+# Constants
+NUM_TIMESLOTS     = data["num_timeslots"]
+HEATING_MAX_POWER = data["heating_max_power"]
+VENT_MIN_UP_TIME  = data["vent_min_up_time"]
+zeta_exch         = data['heat_exchange_coeff'] # heat exchange coefficient between rooms
+zeta_conv         = data['heating_efficiency_coeff'] # heating efficiency: increase in room temperature per kW of heating power
+zeta_loss         = data['thermal_loss_coeff'] # thermal loss coefficient: fraction of indoor-outdoor temperature difference lost per hour    
+zeta_cool         = data['heat_vent_coeff'] # ventilation cooling effect: temperature decrease in the room for each hour that ventilation is ON (°C)
+zeta_occ          = data['heat_occupancy_coeff'] # occupancy heat gain: temperature increase per hour per person in the room (°C)
+eta_occ           = data['humidity_occupancy_coeff'] # humidity increase per hour per person in the room (%)
+eta_vent    = data['humidity_vent_coeff'] # humidity decrease per hour when ventilation is ON (%)
+
+
 def update_overrule_controler_state(overrule_state, temperature, data):
     """
     Turns on the overrule controller if the temperature is below the minimum comfort threshold,
@@ -24,13 +39,13 @@ def update_overrule_controler_state(overrule_state, temperature, data):
     if (overrule_state == False) and (temperature < data["temp_min_comfort_threshold"]):
         overrule_state = True
 
-    elif (overrule_state == True) and (temperature > data["temp_OK_threshold"]):
+    elif (overrule_state == True) and (temperature >= data["temp_OK_threshold"]):
         overrule_state = False
-
+    
     return overrule_state
 
 
-def calculate_room_temperature(P, occupancy, prev_temperature, other_room_prev_temp, data, V, outside_temperature):
+def calculate_room_temperature(P, occupancy, prev_temperature, other_room_prev_temp, V, outside_temperature):
     """Calculate the new temperature of a room based on the previous temperature, the heating power, occupancy, 
     ventilation, and outdoor temperature.
     Inputs:
@@ -38,19 +53,19 @@ def calculate_room_temperature(P, occupancy, prev_temperature, other_room_prev_t
     - occupancy: number of people in the room
     - prev_temperature: previous temperature of the room
     - other_room_prev_temp: previous temperature of the other room
-    - data: system characteristics dictionary
     - V: ventilation system status (here-and-now decision v)
     - outside_temperature: current outdoor temperature
     """
+    # print(f"occupancy: {occupancy}, outside temperature: {outside_temperature}")
+
     return (
         prev_temperature + 
-        data["heat_exchange_coeff"] * (other_room_prev_temp - prev_temperature) -
-        data["thermal_loss_coeff"] * (prev_temperature - outside_temperature) +
-        data["heating_efficiency_coeff"] * P - 
-        data["heat_vent_coeff"] * V + 
-        data["heat_occupancy_coeff"] * occupancy
+        zeta_exch * (other_room_prev_temp - prev_temperature) -
+        zeta_loss * (prev_temperature - outside_temperature) +
+        zeta_conv * P - 
+        zeta_cool * V + 
+        zeta_occ * occupancy
     )
-
 
 
 def verify_ventilation_actions(decision_V, data, humidity, vent_counter, VENT_MIN_UP_TIME):
@@ -70,7 +85,7 @@ def verify_ventilation_actions(decision_V, data, humidity, vent_counter, VENT_MI
     if decision_V != V:
         reason = 'high humidity detected' if humidity > data['humidity_threshold'] else 'minimum ventilation uptime not met'
         print(f"\nERROR: ILLEGAL ACTION TERMINATED THE SIMULATION:")
-        print("Ventilation was set to ON, but the safety system has determined that it must be OFF due to the following reason:")
+        print("Ventilation was set to OFF, but the safety system has determined that it must be ON due to the following reason:")
         print(reason)
         sys.exit(1)
 
@@ -124,11 +139,6 @@ def run_environment(policy, start, end, plot=False):
     # Outside temperature vector
     outside_temperature_vector = data["outdoor_temperature"]
 
-    # Constants
-    NUM_TIMESLOTS     = data["num_timeslots"]
-    HEATING_MAX_POWER = data["heating_max_power"]
-    VENT_MIN_UP_TIME  = data["vent_min_up_time"]
-
     # Logs and results storage
     daily_objective_values = []
     daily_logs = [] 
@@ -172,7 +182,6 @@ def run_environment(policy, start, end, plot=False):
                     occupancy1_matrix[day][hour - 1],
                     old_T1,
                     old_T2,
-                    data,
                     V,
                     outside_temperature_vector[hour - 1]
                 )
@@ -182,19 +191,18 @@ def run_environment(policy, start, end, plot=False):
                     occupancy2_matrix[day][hour - 1],
                     old_T2,
                     old_T1,
-                    data,
                     V,
                     outside_temperature_vector[hour - 1]
                 )
 
                 humidity = (
                     humidity
-                    + data["humidity_occupancy_coeff"] *
+                    + eta_occ *
                     (
                         occupancy1_matrix[day][hour - 1]
                         + occupancy2_matrix[day][hour - 1]
                     )
-                    - data["humidity_vent_coeff"] * V
+                    - eta_vent * V
                 )
 
                 # Update consecutive ventilation counter
@@ -236,7 +244,7 @@ def run_environment(policy, start, end, plot=False):
 
             # Evaluate policy's decisions
             POWER_MAX = {1: HEATING_MAX_POWER, 2: HEATING_MAX_POWER}
-            decision = v2_Checks.check_and_sanitize_action(policy, state, POWER_MAX)
+            decision = v2_Checks.check_and_sanitize_action(policy, [state, day], POWER_MAX)
 
             # Extract actions
             V  = decision["VentilationON"]
