@@ -244,7 +244,7 @@ def run_environment(policy, start, end, plot=False):
 
             # Evaluate policy's decisions
             POWER_MAX = {1: HEATING_MAX_POWER, 2: HEATING_MAX_POWER}
-            decision = v2_Checks.check_and_sanitize_action(policy, [state, day], POWER_MAX)
+            decision = v2_Checks.check_and_sanitize_action(policy, state, POWER_MAX)
 
             # Extract actions
             V  = decision["VentilationON"]
