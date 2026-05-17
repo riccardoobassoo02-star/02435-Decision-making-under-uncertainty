@@ -32,8 +32,8 @@ L           = data["num_timeslots"]
 M_temp = 50
 M_hum  = 100
 
-eta_weights = np.load("eta_weights.npy")
-
+# eta_weights = np.load("eta_weights.npy")
+eta_weights = np.load("eta_weights_best.npy")
 
 def generate_samples(state, B, N_samples):
     sample_prices = []
