@@ -3,9 +3,7 @@
 Created on Mon Nov 17 11:14:31 2025
 
 @author: geots
-Updating B
 """
-
 import time
 from pyomo.environ import *
 from sklearn.cluster import KMeans
@@ -352,25 +350,7 @@ def select_action(state):
     
     try:
         start = time.time()
-        
-        number_of_active_overrides = 0
-
-        # Count number of active overrides
-        if state["low_override_r1"]:
-            number_of_active_overrides += 1
-
-        if state["low_override_r2"]:
-            number_of_active_overrides += 1
-        
-        if 0 < state["vent_counter"] < 3:
-            number_of_active_overrides += 1
-            
-        # Choose L and B based on number of active overrides
-        if number_of_active_overrides > 1:
-           L, B = min(4, 9-state["current_time"]), 4
-        else:
-           L, B = min(4, 9-state["current_time"]), 3 # lookahead horizon and branching factor (tunable parameters that affect the trade-off between solution quality and computational time)
-
+        L, B = min(4, 9-state["current_time"]), 3 # lookahead horizon and branching factor (tunable parameters that affect the trade-off between solution quality and computational time)
         nodes = build_tree(state, L=L, B=B, N_samples=100)
         p1, p2, v = solve_sp(state, nodes)
         end = time.time()

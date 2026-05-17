@@ -252,7 +252,7 @@ def solve_MILP(state: dict, forecast: dict, L: int) -> tuple:
     #         price_pred = price_forecast[idx]
 
 
-    #     print(f"{t:<6} {p1_val:<8.3f} {p2_val:<8.3f} {temp_r1_val:<10f} {temp_r2_val:<10f} {overr_r1_val:<10} {overr_r2_val:<10} {hum_val:<10.3f} {v_val:<4} {price_pred:<10.3f} {occ1_pred:<8.3f} {occ2_pred:<8.3f}")
+    #     print(f"{t:<6} {p1_val:<8} {p2_val:<8f} {temp_r1_val:<10f} {temp_r2_val:<10f} {overr_r1_val:<10} {overr_r2_val:<10} {hum_val:<10.3f} {v_val:<4} {price_pred:<10.3f} {occ1_pred:<8.3f} {occ2_pred:<8.3f}")
     # print("\n")
 
 
