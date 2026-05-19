@@ -141,12 +141,20 @@ for alpha_val in alpha_set:
 # 4. Plots
 
 # PLOT 1: System Objective
-plt.figure(figsize=(10, 5))
+print("\n--- Final Objective Values after 100 iterations ---")
 for a in alpha_set:
-    plt.plot(results[a]['obj'], label=f'alpha={a}')
-plt.axhline(y=centralized_optimal_obj, color='r', linestyle='--', label='Centralized Optimal')
+    print(f"  alpha={a}: {results[a]['obj'][-1]:.4f}")
+print(f"  Centralized Optimal: {centralized_optimal_obj:.4f}")
+plt.figure(figsize=(11, 5))
+for a in alpha_set:
+    final_obj_val = results[a]['obj'][-1]
+    plt.plot(results[a]['obj'], label=f'alpha={a} (final obj={final_obj_val:.1f})')
+plt.axhline(y=centralized_optimal_obj, color='r', linestyle='--', label=f'Centralized Optimal ({centralized_optimal_obj:.1f})')
 plt.title("System Objective Value (Social Welfare) across Iterations")
-plt.xlabel("Iteration (k)"); plt.ylabel("Objective Value"); plt.legend(); plt.show()
+plt.xlabel("Iteration (k)"); plt.ylabel("Objective Value"); plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left', borderaxespad=0.)
+plt.tight_layout()
+plt.savefig(FILE_DIR / 'plot1_objective.png', dpi=150)
+plt.show()
 
 # PLOT 2: Multiplier Evolution
 fig, axes = plt.subplots(2, 3, figsize=(15, 8))
@@ -161,6 +169,7 @@ for idx, a in enumerate(alpha_set):
     axes[idx].legend(fontsize=6, ncol=2)
 plt.suptitle("Evolution of Lagrange Multipliers (λ_t) — All Step Sizes", fontsize=13)
 plt.tight_layout()
+plt.savefig(FILE_DIR / 'plot2_lambdas.png', dpi=150)
 plt.show()
 
 # PLOT 3: Constraint Violations
@@ -177,54 +186,77 @@ for idx, a in enumerate(alpha_set):
     axes[idx].legend(fontsize=6, ncol=2)
 plt.suptitle("Evolution of Power Violations per Timeslot — All Step Sizes", fontsize=13)
 plt.tight_layout()
+plt.savefig(FILE_DIR / 'plot3_violations.png', dpi=150)
 plt.show()
 
-# 5. FINAL PLOT: Power Distribution per Store (Adaptive Alpha, Final Iteration)
+# 5. FINAL PLOT: Energy per Store — Centralized vs Distributed (Adaptive Alpha)
 
-# We will re-run a quick capture for the 'adaptive' case to get individual store data
-final_store_power = []  # To store (15 stores x 10 hours)
+final_store_power = []
 lambda_final = np.zeros(data7['num_timeslots'])
 alpha_0 = 5
 
-# Run the 100 iterations one last time specifically to extract store-level data
 for k in range(100):
     total_p_iter = np.zeros(data7['num_timeslots'])
     step = alpha_0 / (1 + k)
-
-    # Temporary list to hold this iteration's store choices
     current_iter_stores = []
-
     for n in range(15):
         p_n, _ = solve_store_subproblem(n, lambda_final, data7, occupancy)
         total_p_iter += np.array(p_n)
-        if k == 99:  # Only save the very last iteration
+        if k == 99:
             current_iter_stores.append(p_n)
-
-    # Update lambda
     for t in range(data7['num_timeslots']):
         lambda_final[t] = max(0, lambda_final[t] + step * (total_p_iter[t] - data7['P_mall']))
-
     if k == 99:
         final_store_power = np.array(current_iter_stores)
 
-# Plotting
-plt.figure(figsize=(12, 6))
-time_slots_range = range(data7['num_timeslots'])
-bottom_stack = np.zeros(data7['num_timeslots'])
+energy_dist = np.sum(final_store_power, axis=1)
 
-# Use a colormap to distinguish 15 stores
-colors = plt.cm.viridis(np.linspace(0, 1, 15))
+def solve_centralized_with_power(data7, occupancy_df):
+    model = ConcreteModel()
+    model.N = RangeSet(1, 15)
+    model.R = RangeSet(1, 2)
+    model.T = RangeSet(0, data7['num_timeslots'] - 1)
+    model.p = Var(model.N, model.R, model.T, bounds=(0, data7['heating_max_power']))
+    model.Temp = Var(model.N, model.R, model.T)
+    def obj_rule(m):
+        return sum((n + 1) * (m.Temp[n, r, t] - data7['Temperature_reference'])**2
+                   for n in m.N for r in m.R for t in m.T)
+    model.obj = Objective(rule=obj_rule, sense=minimize)
+    def mall_limit_rule(m, t):
+        return sum(m.p[n, r, t] for n in m.N for r in m.R) <= data7['P_mall']
+    model.limit = Constraint(model.T, rule=mall_limit_rule)
+    def dynamics_rule(m, n, r, t):
+        if t == 0: return m.Temp[n, r, t] == data7['initial_temperature']
+        r_prime = 2 if r == 1 else 1
+        return m.Temp[n, r, t] == m.Temp[n, r, t-1] + \
+               data7['heat_exchange_coeff']*(m.Temp[n, r_prime, t-1] - m.Temp[n, r, t-1]) - \
+               data7['thermal_loss_coeff']*(m.Temp[n, r, t-1] - data7['outdoor_temperature'][t-1]) + \
+               data7['heating_efficiency_coeff']*m.p[n, r, t-1] - \
+               data7['heat_vent_coeff']*1 + \
+               data7['heat_occupancy_coeff']*occupancy_df.iloc[r-1, t-1]
+    model.cons = Constraint(model.N, model.R, model.T, rule=dynamics_rule)
+    SolverFactory('gurobi').solve(model)
+    energy_cent = np.array([
+        sum(value(model.p[n, r, t]) for r in [1, 2] for t in range(data7['num_timeslots']))
+        for n in range(1, 16)
+    ])
+    return energy_cent
 
-for n in range(15):
-    plt.bar(time_slots_range, final_store_power[n, :], bottom=bottom_stack,
-            label=f'Store {n + 1} (w={n + 1})', color=colors[n])
-    bottom_stack += final_store_power[n, :]
+print("Re-solving centralized to extract per-store energy...")
+energy_cent = solve_centralized_with_power(data7, occupancy)
 
-plt.axhline(y=data7['P_mall'], color='red', linestyle='--', linewidth=2, label='Mall Limit')
-plt.title("Final Power Allocation per Store (Adaptive Step Size)", fontsize=14)
-plt.xlabel("Time Slot (Hour)", fontsize=12)
-plt.ylabel("Power Consumption [kW]", fontsize=12)
-plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', ncol=1, fontsize='small')
-plt.grid(axis='y', alpha=0.3)
+weights      = np.array([n + 1 for n in range(1, 16)])
+store_labels = [f'S{n}' for n in range(1, 16)]
+x_pos        = np.arange(15)
+
+plt.figure(figsize=(14, 5))
+plt.bar(x_pos - 0.2, energy_cent, 0.4, label='Centralized', color='orange', alpha=0.85)
+plt.bar(x_pos + 0.2, energy_dist, 0.4, label='Adaptive α₀=5 (distributed)', color='steelblue', alpha=0.85)
+plt.xticks(x_pos, store_labels, fontsize=9)
+plt.ylabel('Total Energy Consumed (kWh)', fontsize=12)
+plt.title('Energy per Store: Centralized vs Distributed (Adaptive α₀=5)', fontsize=13)
+plt.legend(fontsize=10)
+plt.grid(True, alpha=0.3, axis='y')
 plt.tight_layout()
+plt.savefig(FILE_DIR / 'plot4_energy_per_store.png', dpi=150)
 plt.show()
