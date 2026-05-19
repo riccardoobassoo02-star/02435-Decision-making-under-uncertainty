@@ -1,4 +1,4 @@
-from Policies import SP_policy_30, SP_policy_30_v2, ADP_policy_30, DUMMY_policy_30, Two_stage
+from Policies import SP_policy_30, SP_policy_30, ADP_policy_30, DUMMY_policy_30, Two_stage, Hybrid_policy_30
 from Environment import run_environment
 from importlib import import_module
 
@@ -8,7 +8,6 @@ import numpy as np
 import time
 import pandas as pd
 import os
-
 
 
 def save_results_to_csv(results, policy_name):
@@ -96,9 +95,8 @@ def run_environment_in_parallel(policy, n_experiments, n_workers):
     }
 
 
-
 # Variables to set before running the environment:
-POLICY          = Two_stage
+POLICY          = Hybrid_policy_30  # can be a string like "Policies.Hybrid_policy_30" or the imported module itself
 N_EXPERIMENTS   = 100
 PLOT_RESULTS    = False
 RUN_IN_PARALLEL = True
