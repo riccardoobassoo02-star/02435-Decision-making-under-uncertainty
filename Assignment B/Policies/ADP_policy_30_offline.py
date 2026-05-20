@@ -24,8 +24,8 @@ H_high          = data['humidity_threshold']
 eta_occ         = data['humidity_occupancy_coeff']
 eta_vent        = data['humidity_vent_coeff']
 min_up_time     = data['vent_min_up_time']
-M_temp = 50    # big-M for temperature constraints
-M_hum  = 100   # big-M for humidity constraints
+M_temp = 50   # big-M for temperature constraints
+M_hum  = 100  # big-M for humidity constraints
 np.random.seed(42)
 
 initial_state = {
@@ -146,7 +146,7 @@ def compute_cost(state, action):
         action["p1"] + action["p2"] + P_vent * action["v"]
     )
 
-# forward fast not used anymore
+# forward fast not used anymore: we tried an algebraic examotage to afford more scenarios, but failed
 def solve_forward_pass_fast(state, eta):
     """Analytical solution: choose p1, p2, v by sign of their cost coefficient."""
     t = state["current_time"]
