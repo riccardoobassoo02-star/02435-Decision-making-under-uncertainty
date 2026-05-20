@@ -16,7 +16,7 @@ root ────┼─ node 3 ── node 8  ── node 13
          └─ node 5 ── node 10 ── node 15
 
 Stage 1 (tau=0): here-and-now decision -> p0[r], v0  (single, shared across ALL scenarios)
-Stage 2 (tau=1..L): wait-and-see recourse-> p[r,node], v[node]  (one set per scenario chain)
+Stage 2 (tau=1..L): wait-and-see recourse -> p[r,node], v[node]  (one set per scenario chain)
 
 Non-anticipativity is implicit: there is only one Stage-1 variable, no need for explicit
 non-anticipativity constraints (unlike multi-stage trees where intermediate nodes must share
@@ -74,7 +74,7 @@ def build_fan_tree(state, L, S, N_samples=100):
         list of node dictionaries representing the fan-shaped scenario tree
     """
 
-    # Root node (tau=0) — current state, no uncertainty
+    # Root node (tau=0) - current state, no uncertainty
     root = {
         "id":         0,
         "tau":        0,
@@ -111,7 +111,7 @@ def build_fan_tree(state, L, S, N_samples=100):
         child = {
             "id":         next_id,
             "tau":        1,
-            "parent_id":  0,          # parent is root
+            "parent_id":  0,            # parent is root
             "price":      centroids[s, 0],
             "price_prev": root["price"],
             "occ1":       centroids[s, 1],
@@ -158,7 +158,7 @@ def solve_sp(state, nodes):
 
     This function is intentionally identical to the multi-stage SP solver:
     the two-stage structure is entirely encoded in the tree topology built
-    by build_fan_tree — the MILP formulation does not change.
+    by build_fan_tree (the MILP formulation does not change).
     """
     model = ConcreteModel()
 
@@ -184,7 +184,7 @@ def solve_sp(state, nodes):
     model.v0 = Var(within=Binary)
     model.s0 = Var(within=Binary)
 
-    # Variables — future nodes (tau>=1)
+    # Variables - future nodes (tau>=1)
     model.p      = Var(model.R, model.NODES, within=NonNegativeReals, bounds=(0, P_max))
     model.v      = Var(model.NODES, within=Binary)
     model.s      = Var(model.NODES, within=Binary)
@@ -227,7 +227,7 @@ def solve_sp(state, nodes):
             return int(low_override_init[r])
         return model.u[r, node["parent_id"]]
 
-    # Objective — Stage 1 cost (certain) + expected Stage 2 cost
+    # Objective = Stage 1 cost (certain) + expected Stage 2 cost
     obj_expr = state["price_t"] * (
         model.p0[1] + model.p0[2] + P_vent * model.v0
     )
@@ -354,8 +354,8 @@ def select_action(state):
     try:
         start = time.time()
 
-        L = min(4, 9 - state["current_time"])  # lookahead horizon
-        S = 9                                   # number of fan scenarios (Stage-2 branches)
+        L = min(5, 9 - state["current_time"])  # lookahead horizon
+        S = 9                                  # number of fan scenarios (Stage-2 branches)
 
         nodes    = build_fan_tree(state, L=L, S=S, N_samples=150)
         p1, p2, v = solve_sp(state, nodes)
