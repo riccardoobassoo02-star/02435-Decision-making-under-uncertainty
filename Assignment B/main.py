@@ -98,7 +98,7 @@ def run_environment_in_parallel(policy, n_experiments, n_workers):
 
 # Variables to set before running the environment:
 POLICY          = Hybrid_policy_30  # can be a string like "Policies.Hybrid_policy_30" or the imported module itself
-N_EXPERIMENTS   = 1
+N_EXPERIMENTS   = 100
 PLOT_RESULTS    = False
 RUN_IN_PARALLEL = False
 N_WORKERS       = 8
