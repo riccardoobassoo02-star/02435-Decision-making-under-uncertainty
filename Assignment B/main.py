@@ -27,7 +27,8 @@ def save_results_to_csv(results, policy_name):
                 "Power_Heater1": log["P1"][i],
                 "Power_Heater2": log["P2"][i],
                 "Ventilation_On": log["V"][i],
-                "Humidity": log["H"][i]
+                "Humidity": log["H"][i],
+                "cost" : log["cost"][i]
             })
 
     df = pd.DataFrame(rows)
@@ -96,10 +97,10 @@ def run_environment_in_parallel(policy, n_experiments, n_workers):
 
 
 # Variables to set before running the environment:
-POLICY          = Hybrid_policy_30  # can be a string like "Policies.Hybrid_policy_30" or the imported module itself
-N_EXPERIMENTS   = 100
+POLICY          = SP_policy_30  # can be a string like "Policies.Hybrid_policy_30" or the imported module itself
+N_EXPERIMENTS   = 1
 PLOT_RESULTS    = False
-RUN_IN_PARALLEL = True
+RUN_IN_PARALLEL = False
 N_WORKERS       = 8
 
 

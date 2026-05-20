@@ -161,7 +161,8 @@ def run_environment(policy, start, end, plot=False):
             "objective": [],
             "price": [],
             "occ1": [],
-            "occ2": []
+            "occ2": [],
+            "cost": []
         }
 
         for hour in range(NUM_TIMESLOTS):
@@ -244,7 +245,7 @@ def run_environment(policy, start, end, plot=False):
 
             # Evaluate policy's decisions
             POWER_MAX = {1: HEATING_MAX_POWER, 2: HEATING_MAX_POWER}
-            decision = v2_Checks.check_and_sanitize_action(policy, state, POWER_MAX)
+            decision = v2_Checks.check_and_sanitize_action(policy, state, POWER_MAX) # change the input of the policy to just receive the state and day, not the whole data dictionary, and change the policy's expected input accordingly in all policies
 
             # Extract actions
             V  = decision["VentilationON"]
@@ -274,6 +275,7 @@ def run_environment(policy, start, end, plot=False):
             day_log["price"].append(state["price_t"])
             day_log["occ1"].append(state["Occ1"])
             day_log["occ2"].append(state["Occ2"])
+            day_log["cost"].append(hourly_cost)
 
 
         # Collect daily logs
