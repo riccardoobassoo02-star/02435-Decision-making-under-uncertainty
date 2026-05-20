@@ -884,9 +884,9 @@ else:
 best_eta   = eta.copy()
 best_error = float("inf")
 
-N_iterations    = 20
-J               = 1
-beta            = 0.05
+N_iterations    = 40
+J               = 3
+beta            = 0.15
 convergence_tol = 30.0
 
 # Replay buffer: stores individual trajectories from past iterations.
@@ -896,7 +896,7 @@ replay_buffer   = []
 
 # Fixed validation set generated once at startup (deterministic seed).
 # Used to monitor convergence on data independent of the training batch.
-N_val      = 30   # kept small due to hybrid forward pass cost
+N_val      = 10   # kept small due to hybrid forward pass cost
 _rng_state = np.random.get_state()
 np.random.seed(0)
 validation_states, validation_actions, validation_costs = forward_pass(
@@ -944,7 +944,7 @@ for i in range(N_iterations):
     # 6. Diagnostics: training fit, validation fit, policy cost.
     train_error = compute_avg_fit_error(train_states, train_actions, train_costs, eta)
     val_error   = compute_avg_fit_error(validation_states, validation_actions, validation_costs, eta)
-    policy_cost = evaluate_policy(eta, n_eval=50)
+    policy_cost = evaluate_policy(eta, n_eval=10)
 
     print(f"  train fit error: {train_error:.4f} | val fit error: {val_error:.4f} | policy avg cost: {policy_cost:.4f}")
 
