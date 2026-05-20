@@ -377,12 +377,12 @@ n_features = len(phi(initial_state))
 
 # Warm start from existing ADP eta if available.
 # This is better than starting from ones.
-if Path("eta_weights.npy").exists():
-    eta = np.load("eta_weights.npy")
-    print("Loaded eta_weights.npy as warm start.")
+if Path("eta_weights_best.npy").exists():
+    eta = np.load("eta_weights_best.npy")
+    print("Loaded eta_weights_best.npy as warm start.")
 else:
     eta = np.ones((T, n_features))
-    print("No eta_weights.npy found. Starting from ones.")
+    print("No eta_weights_best.npy found. Starting from ones.")
 
 best_eta = eta.copy()
 best_error = float("inf")
