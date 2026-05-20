@@ -408,8 +408,8 @@ def backward_pass(states, actions, costs, eta_current):
     Returns a new eta array.
     """
     n_features = len(phi(initial_state))
-    alpha      = 5     # Ridge regression regularization
-    K          = 20    # Number of exogenous samples per (n, t) for target estimation
+    alpha      = 1     # Ridge regression regularization
+    K          = 10    # Number of exogenous samples per (n, t) for target estimation
 
     eta_new = eta_current.copy()
 
@@ -485,7 +485,7 @@ J              = 3                          # Number of policy evaluation sweeps
 convergence_tol = 30
 
 # Validation and replay settings
-N_val = 500                     # number of fixed validation trajectories
+N_val = 200                     # number of fixed validation trajectories
 replay_capacity = 5 * N        # max number of trajectories in replay buffer
 replay_buffer = []             # list of (states, actions, costs) per trajectory
 
@@ -501,7 +501,7 @@ def evaluate_policy(eta, n_eval=200):
 
         cum_cost = 0.0
         for t in range(L):
-            action = solve_forward_pass_milp(state, eta, K_policy=10)
+            action = solve_forward_pass_milp(state, eta, K_policy=5)
             cum_cost += compute_cost(state, action)
             if t < L - 1:
                 exogenous = generate_exogenous(state)
