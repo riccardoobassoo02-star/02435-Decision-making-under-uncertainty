@@ -29,7 +29,7 @@ M_hum  = 100                   # big-M for humidity constraints
 M_vc   = min_up_time + 1       # upper bound on vent_counter (resets to 0 when v=0)
 
 # Load offline-trained ADP value function weights, shape (T, 11)
-eta_weights = np.load("eta_weights_hybrid_best.npy")
+eta_weights = np.load("eta_weights.npy")
 
 
 # SCENARIO TREE BUILDER (iterative Branch & Cluster)
